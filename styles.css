@@ -263,7 +263,8 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 
 .player-name {
   min-width: 0;
-  flex: 1;
+  max-width: 100%;
+  flex: 0 1 auto;
   padding: 2px 4px 4px;
   border: 0;
   border-bottom: 1px solid transparent;
@@ -271,10 +272,21 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   background: transparent;
   color: inherit;
   font: 700 clamp(.9rem, 4cqh, 1.35rem) 'Manrope', sans-serif;
+  cursor: pointer;
   text-align: center;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
 }
-.player-name:focus { border-bottom-color: rgba(255,255,255,.55); }
+.player-name.is-editing { cursor: text; }
+.player-name.is-editing:focus { border-bottom-color: rgba(255,255,255,.55); }
+.first-player-mark {
+  flex: 0 0 auto;
+  color: rgba(255,255,255,.72);
+  font: italic 800 clamp(.7rem, 3cqh, .95rem) 'Manrope', sans-serif;
+  letter-spacing: -.03em;
+}
+.first-player-mark[hidden] { display: none; }
 
 .life-total {
   position: relative;
@@ -295,7 +307,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 
 .turn-timer {
   position: absolute;
-  top: 71%;
+  top: 63%;
   bottom: auto;
   display: flex;
   align-items: center;
@@ -371,9 +383,9 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .foolish-token {
   position: absolute;
   z-index: 4;
-  top: calc(max(12px, 4cqh) + 54px);
-  width: clamp(42px, 12cqh, 54px);
-  height: clamp(42px, 12cqh, 54px);
+  top: calc(max(12px, 4cqh) + 58px);
+  width: clamp(52px, 14cqh, 66px);
+  height: clamp(52px, 14cqh, 66px);
   overflow: hidden;
   padding: 0;
   border: 1px solid rgba(255,255,255,.3);
@@ -393,7 +405,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 }
 .player-card.is-opponent .foolish-token {
   top: auto;
-  bottom: calc(max(12px, 4cqh) + 54px);
+  bottom: calc(max(12px, 4cqh) + 58px);
   transform: rotate(180deg);
 }
 .player-card.is-opponent .card-settings:hover { transform: rotate(180deg) translateY(-1px); }

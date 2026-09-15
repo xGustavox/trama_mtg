@@ -613,7 +613,8 @@ function moveNamesClearOfTurnButton() {
     card.classList.remove('name-near-center');
     const inputRect = input.getBoundingClientRect();
     textContext.font = getComputedStyle(input).font;
-    const textWidth = Math.min(inputRect.width, textContext.measureText(input.value).width + 8);
+    const displayedName = input instanceof HTMLInputElement ? input.value : input.textContent;
+    const textWidth = Math.min(inputRect.width, textContext.measureText(displayedName).width + 8);
     const nameRect = {
       top: inputRect.top,
       right: inputRect.left + (inputRect.width + textWidth) / 2,
@@ -629,6 +630,48 @@ function moveNamesClearOfTurnButton() {
       : buttonRect.bottom - nameRect.top + 8;
     name.style.top = `${parseFloat(getComputedStyle(name).top) + clearance}px`;
     card.classList.add('name-near-center');
+  });
+}
+
+function bindPlayerNameButton(button, player, fallbackName) {
+  button.textContent = player.name;
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const input = document.createElement('input');
+    input.className = 'player-name is-editing';
+    input.maxLength = 20;
+    input.setAttribute('aria-label', 'Nome do jogador');
+    input.value = player.name;
+    const sizeNameInput = () => {
+      input.style.width = `${Math.min(21, Math.max(3, input.value.length + 1))}ch`;
+    };
+    sizeNameInput();
+    button.replaceWith(input);
+    input.focus({ preventScroll: true });
+    input.select();
+    let finished = false;
+    const finish = (saveChanges = true) => {
+      if (finished) return;
+      finished = true;
+      if (saveChanges) {
+        player.name = input.value.trim() || fallbackName;
+        savePlayerProfile(player);
+        saveState();
+      }
+      const nextButton = document.createElement('button');
+      nextButton.type = 'button';
+      nextButton.className = 'player-name';
+      nextButton.setAttribute('aria-label', 'Editar nome do jogador');
+      input.replaceWith(nextButton);
+      bindPlayerNameButton(nextButton, player, fallbackName);
+      moveNamesClearOfTurnButton();
+    };
+    input.addEventListener('blur', () => finish());
+    input.addEventListener('input', sizeNameInput);
+    input.addEventListener('keydown', (keyEvent) => {
+      if (keyEvent.key === 'Enter') input.blur();
+      if (keyEvent.key === 'Escape') finish(false);
+    });
   });
 }
 
@@ -662,16 +705,10 @@ function render() {
       card.classList.add('has-image');
     }
 
-    const nameInput = card.querySelector('.player-name');
-    nameInput.disabled = isReordering;
-    nameInput.value = player.name;
-    nameInput.addEventListener('click', (event) => event.stopPropagation());
-    nameInput.addEventListener('change', () => {
-      player.name = nameInput.value.trim() || `Jogador ${index + 1}`;
-      nameInput.value = player.name;
-      savePlayerProfile(player);
-      saveState();
-    });
+    const nameButton = card.querySelector('.player-name');
+    nameButton.disabled = isReordering;
+    bindPlayerNameButton(nameButton, player, `Jogador ${index + 1}`);
+    card.querySelector('.first-player-mark').hidden = player.id !== state.roundStartPlayerId;
 
     card.querySelector('.life-total').textContent = player.life;
     card.querySelector('.timer-value').textContent = formatTime(player.timerSeconds);
