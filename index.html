@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#0f0f12" />
+    <title>Trama MTG Tracker</title>
+    <link rel="icon" type="image/png" href="assets/trama-logo.png" />
+    <link rel="preconnect" href="https://api.scryfall.com" />
+    <link rel="preconnect" href="https://cards.scryfall.io" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <aside class="app-sidebar" aria-label="Menu da partida">
+      <div class="app-mark" aria-label="Trama MTG Tracker">
+        <img src="assets/trama-logo.png" alt="" />
+      </div>
+      <nav class="sidebar-actions">
+        <button id="new-game" class="sidebar-button" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18" /></svg>
+          <span>Novo jogo</span>
+        </button>
+        <button id="pause-game" class="sidebar-button" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path class="pause-symbol" d="M8 5v14M16 5v14" />
+            <path class="continue-symbol" d="m8 5 11 7-11 7Z" />
+          </svg>
+          <span id="pause-game-label">Pausar</span>
+        </button>
+        <button id="open-game-log" class="sidebar-button" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h11M8 12h11M8 18h11M4 6h.01M4 12h.01M4 18h.01" /></svg>
+          <span>Log</span>
+        </button>
+        <button id="toggle-sound" class="sidebar-button" type="button" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9v6h4l5 4V5L9 9H5Z" /><path class="sound-wave" d="M17 9a4 4 0 0 1 0 6M19.5 6.5a8 8 0 0 1 0 11" /><path class="muted-wave" d="m17 9 5 6m0-6-5 6" /></svg>
+          <span id="sound-label">Mutar</span>
+        </button>
+        <button id="arrange-table" class="sidebar-button" type="button" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h8M8 12h8M8 17h8M4 7h.01M4 12h.01M4 17h.01M20 7h.01M20 12h.01M20 17h.01" /></svg>
+          <span id="arrange-table-label">Reorganizar</span>
+        </button>
+      </nav>
+      <button id="fullscreen" class="sidebar-button sidebar-bottom" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" /></svg>
+        <span>Tela cheia</span>
+      </button>
+    </aside>
+
+    <main id="app" aria-label="Marcador de vida"></main>
+    <div id="victory-confetti" class="victory-confetti" hidden aria-hidden="true"></div>
+
+    <div id="turn-controls" class="turn-controls">
+      <button id="pass-turn" class="pass-turn" type="button" aria-label="Passar para o próximo turno">
+        <strong class="turn-status">Turno <span id="turn-number">1</span></strong>
+        <strong class="paused-status" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z" /></svg>
+          Jogo pausado
+        </strong>
+        <span class="pass-label">Passar turno</span>
+      </button>
+    </div>
+
+    <dialog id="image-dialog" class="modal">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Personalizar jogador</p>
+          <h2>Configurar jogador</h2>
+        </div>
+        <button class="icon-button close-modal" type="button" aria-label="Fechar">×</button>
+      </div>
+      <div class="player-profile-fields">
+        <button id="open-saved-players" class="open-profiles" type="button">
+          <span class="open-profiles-icon" aria-hidden="true">♟</span>
+          <span><strong>Carregar jogador salvo</strong><small>Nome, imagem e cor</small></span>
+          <span aria-hidden="true">›</span>
+        </button>
+        <label>
+          <span>Nome</span>
+          <input id="player-settings-name" maxlength="20" />
+        </label>
+      </div>
+      <fieldset class="color-settings">
+        <legend>Usar uma cor de fundo</legend>
+        <div id="color-options" class="color-options"></div>
+        <label class="custom-color" title="Escolher cor personalizada">
+          <input id="custom-color" type="color" />
+          <span aria-hidden="true">+</span>
+          <small>Personalizada</small>
+        </label>
+      </fieldset>
+      <form id="image-search" class="search-form">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></svg>
+        <input id="image-query" type="search" placeholder="Busque uma carta, personagem ou criatura…" autocomplete="off" required />
+        <button type="submit">Buscar</button>
+      </form>
+      <div id="search-status" class="search-status" aria-live="polite">
+        Busque pelo nome de uma carta para usar sua arte como fundo.
+      </div>
+      <div id="image-results" class="image-results"></div>
+      <footer class="scryfall-credit">
+        <button id="remove-current-image" class="remove-art" type="button">Remover imagem atual</button>
+        <button id="save-player-profile" class="save-profile" type="button">Salvar configuração</button>
+        <span>Imagens e dados fornecidos por <a href="https://scryfall.com" target="_blank" rel="noreferrer">Scryfall</a>.</span>
+      </footer>
+    </dialog>
+
+    <dialog id="profiles-dialog" class="modal profiles-modal">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Jogadores deste navegador</p>
+          <h2>Carregar configuração</h2>
+        </div>
+        <button class="icon-button close-modal" type="button" aria-label="Fechar">×</button>
+      </div>
+      <div id="saved-player-grid" class="saved-player-grid"></div>
+    </dialog>
+
+    <dialog id="game-log-dialog" class="modal game-log-modal">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Histórico persistido</p>
+          <h2>Log da partida</h2>
+        </div>
+        <button class="icon-button close-modal" type="button" aria-label="Fechar">×</button>
+      </div>
+      <p id="game-log-empty" class="game-log-empty">O log será iniciado quando a partida começar.</p>
+      <ol id="game-log-list" class="game-log-list"></ol>
+    </dialog>
+
+    <dialog id="new-game-dialog" class="modal confirm-modal new-game-modal">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Nova partida</p>
+          <h2>Configurar novo jogo</h2>
+        </div>
+        <button class="icon-button close-modal" type="button" aria-label="Fechar">×</button>
+      </div>
+      <div class="new-game-settings">
+        <section class="new-game-setting">
+          <div>
+            <strong>Número de jogadores</strong>
+            <small>De 2 a 8 jogadores</small>
+          </div>
+          <div class="player-count-stepper" aria-label="Número de jogadores">
+            <button id="new-game-remove-player" type="button" aria-label="Remover jogador">−</button>
+            <output id="new-game-player-count">4</output>
+            <button id="new-game-add-player" type="button" aria-label="Adicionar jogador">+</button>
+          </div>
+        </section>
+        <section class="new-game-setting new-game-life-setting">
+          <div>
+            <strong>Vida inicial</strong>
+            <small>Total inicial de cada jogador</small>
+          </div>
+          <select id="new-game-starting-life">
+            <option value="20">20 — Standard / Modern</option>
+            <option value="30">30 — Brawl</option>
+            <option value="40">40 — Commander</option>
+          </select>
+        </section>
+        <fieldset class="new-game-time">
+          <legend>Tempo de cada jogador</legend>
+          <div class="time-options">
+            <label><input type="radio" name="new-game-time" value="5"><span>5 min</span></label>
+            <label><input type="radio" name="new-game-time" value="10"><span>10 min</span></label>
+            <label><input type="radio" name="new-game-time" value="15"><span>15 min</span></label>
+            <label><input type="radio" name="new-game-time" value="30" checked><span>30 min</span></label>
+            <label><input type="radio" name="new-game-time" value="custom"><span>Personalizado</span></label>
+          </div>
+          <label id="custom-time-field" class="custom-time-field" hidden>
+            <span>Tempo personalizado</span>
+            <span><input id="new-game-custom-time" type="number" min="1" max="180" inputmode="numeric" value="45"><b>min</b></span>
+          </label>
+        </fieldset>
+      </div>
+      <p>Vidas, relógios, turno, prioridade e dano de comandante serão reiniciados. Os jogadores salvos serão mantidos.</p>
+      <div class="confirm-actions">
+        <button class="cancel-new-game" type="button">Cancelar</button>
+        <button id="confirm-new-game" class="danger-button" type="button">Começar novo jogo</button>
+      </div>
+    </dialog>
+
+    <template id="player-template">
+      <section class="player-card">
+        <div class="player-backdrop"></div>
+        <button class="player-settings card-settings choose-image" type="button" aria-label="Configurar jogador" title="Configurar jogador">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" /></svg>
+        </button>
+        <button class="foolish-token" type="button" aria-label="Usar Ficha da Burrice" title="Ficha da Burrice">
+          <img src="assets/ficha_burrice.png" alt="" />
+        </button>
+        <button class="life-zone decrease" type="button" aria-label="Diminuir vida"><span aria-hidden="true">−</span></button>
+        <button class="life-zone increase" type="button" aria-label="Aumentar vida"><span aria-hidden="true">+</span></button>
+        <div class="player-content">
+          <div class="player-name-wrap">
+            <input class="player-name" maxlength="20" aria-label="Nome do jogador" />
+          </div>
+          <div class="player-status-counters" aria-label="Contadores ativos"></div>
+          <div class="life-total" aria-live="polite">40</div>
+          <div class="turn-timer">
+            <span class="turn-indicator" aria-hidden="true"></span>
+            <span class="timer-value">30:00</span>
+          </div>
+          <div class="life-change" aria-hidden="true"></div>
+          <div class="art-credit"></div>
+        </div>
+        <div class="player-toolbar" aria-label="Ações do jogador">
+          <button class="priority-button" type="button">
+            <span class="priority-dot" aria-hidden="true"></span>
+            Pegar prioridade
+          </button>
+          <button class="player-settings player-counters" type="button" aria-label="Adicionar contador" title="Adicionar contador">
+            <span class="counter-icon" aria-hidden="true">+</span>
+          </button>
+        </div>
+      </section>
+    </template>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
