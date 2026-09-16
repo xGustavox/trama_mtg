@@ -200,6 +200,9 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   transform: scale(1.01);
 }
 .player-card.is-opponent .player-backdrop { transform: rotate(180deg) scale(1.01); }
+.player-card.has-image.is-eliminated .player-backdrop { filter: grayscale(1); }
+.player-card.is-eliminated:not(.has-image),
+.player-card.is-eliminated:not(.has-image) .player-backdrop { background: #1a1a1d; }
 
 .player-backdrop::after {
   content: '';
@@ -397,9 +400,10 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .foolish-token {
   position: absolute;
   z-index: 4;
-  top: calc(max(12px, 4cqh) + 58px);
-  width: clamp(52px, 14cqh, 66px);
-  height: clamp(52px, 14cqh, 66px);
+  top: auto;
+  bottom: max(12px, 4cqh);
+  width: 54px;
+  height: 54px;
   overflow: hidden;
   padding: 0;
   border: 1px solid rgba(255,255,255,.3);
@@ -418,8 +422,8 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   transform: rotate(180deg);
 }
 .player-card.is-opponent .foolish-token {
-  top: auto;
-  bottom: calc(max(12px, 4cqh) + 58px);
+  top: max(12px, 4cqh);
+  bottom: auto;
   transform: rotate(180deg);
 }
 .player-card.is-opponent .card-settings:hover { transform: rotate(180deg) translateY(-1px); }
@@ -488,7 +492,6 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   max-width: 100%;
   padding: 0;
   pointer-events: auto;
-  overflow-x: auto;
   -ms-overflow-style: none;
   scrollbar-width: none;
   scrollbar-color: transparent transparent;
@@ -509,7 +512,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   left: 50%;
   max-width: 94%;
   padding: 0 4px;
-  overflow-x: auto;
+  overflow: visible;
   pointer-events: auto;
   scrollbar-width: none;
   transform: translate(-50%, -50%);
@@ -544,9 +547,11 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   outline-offset: -9px;
 }
 .reorder-mode .player-toolbar {
-  padding: 5px;
-  border-color: rgba(255,255,255,.28);
-  background: rgba(3,8,12,.76);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 .drag-card-preview {
   position: fixed;
@@ -570,12 +575,17 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   padding: 0 22px;
   border: 0;
   border-radius: 999px;
+  outline: 0;
   background: rgba(255,255,255,.12);
   color: #f7f4e9;
   cursor: grab;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
   touch-action: none;
   user-select: none;
 }
+.reorder-handle:focus-visible { box-shadow: 0 0 0 3px rgba(255,255,255,.34); }
 .reorder-handle:active { cursor: grabbing; background: rgba(255,255,255,.2); }
 .reorder-handle span { font-size: 1.55rem; line-height: 1; }
 .reorder-handle strong { font: 700 .78rem 'Manrope'; letter-spacing: .01em; }
@@ -614,6 +624,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .counter-avatar { position: absolute; inset: 0; background-position: center; background-size: cover; }
 .counter-chip::after { content: ''; position: absolute; inset: 0; background: rgba(5,12,19,.42); }
 .counter-chip strong { position: relative; z-index: 1; font: 800 clamp(1rem, 3.5cqh, 1.25rem) 'Manrope'; text-shadow: 0 1px 5px rgba(0,0,0,.95); }
+.commander-chip { box-shadow: 0 4px 12px rgba(0,0,0,.68), 0 1px 3px rgba(0,0,0,.9); }
 .commander-chip.has-damage { border-color: rgba(255,255,255,.62); }
 .commander-chip.is-lethal { border: 3px solid #ff5147; color: #ff5147; }
 .commander-chip.is-lethal strong { color: #ff5147; }
@@ -834,6 +845,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .color-settings { margin: 0 24px 18px; padding: 0; border: 0; }
 .color-settings legend { margin-bottom: 10px; color: #b8bac3; font-size: .75rem; font-weight: 600; }
 .color-options { display: flex; flex-wrap: wrap; gap: 11px; }
+.preset-color-options { display: contents; }
 .color-option, .custom-color {
   position: relative;
   display: grid;

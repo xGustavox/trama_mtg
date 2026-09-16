@@ -596,11 +596,10 @@ function updateControls() {
   passTurnButton.disabled = isChoosingStarter || gameWon;
   const orientedPlayerId = state.winnerPlayerId || state.priorityPlayerId || state.turnPlayerId;
   const turnPlayerTableIndex = tableIndexForPlayer(orientedPlayerId);
-  const nextTurnButtonSide = state.gameStarted && !isReordering
-    && turnPlayerTableIndex < opponentCount(state.players.length)
+  const nextTurnButtonSide = !isReordering && turnPlayerTableIndex < opponentCount(state.players.length)
     ? 1
     : 0;
-  if (state.gameStarted && !isReordering && nextTurnButtonSide !== turnButtonSide) {
+  if (!isReordering && nextTurnButtonSide !== turnButtonSide) {
     turnButtonRotation += 180;
     turnButtonSide = nextTurnButtonSide;
   }
@@ -1504,11 +1503,13 @@ function tickTimer() {
   player.timerSeconds = Math.max(0, player.timerSeconds - elapsedSeconds);
 
   if (player.timerSeconds === 0) {
+    const timedOutTurnPlayer = player.id === state.turnPlayerId;
     if (state.priorityPlayerId === player.id) state.priorityPlayerId = null;
     playDeathSoundIfNeeded(player, false);
     addLogEntry('timeout', `Tempo de ${player.name} esgotou`, before, false, player.id);
     logPlayerEliminationChange(player, false, before);
-    render();
+    if (timedOutTurnPlayer && !state.winnerPlayerId) passTurn();
+    else render();
     return;
   }
 
@@ -1548,21 +1549,15 @@ function passTurn(direction = 1) {
   if (!nextPlayer || isPlayerEliminated(nextPlayer)) return;
   state.turnPlayerId = state.tableOrder[nextIndex];
   state.priorityPlayerId = null;
-  const previousTurnNumber = state.turnNumber;
   if (crossedRoundStart) state.turnNumber = Math.max(1, state.turnNumber + direction);
   lastTimerTick = Date.now();
-  if (state.turnNumber !== previousTurnNumber) {
-    addLogEntry(
-      'turn',
-      state.turnNumber > previousTurnNumber
-        ? `Turno incrementado: ${previousTurnNumber} → ${state.turnNumber}`
-        : `Turno reduzido: ${previousTurnNumber} → ${state.turnNumber}`,
-      before,
-    );
-  } else {
-    state.redoLog = [];
-    saveState();
-  }
+  addLogEntry(
+    'turn',
+    `Turno ${state.turnNumber} de ${nextPlayer.name} iniciou`,
+    before,
+    true,
+    nextPlayer.id,
+  );
   if (randomIndex(100) < 3) {
     playSound(SOUND_PATHS.randomTurn[randomIndex(SOUND_PATHS.randomTurn.length)]);
   }
@@ -1591,7 +1586,13 @@ function startOrPassTurn() {
   state.gameStarted = true;
   state.gamePaused = false;
   lastTimerTick = Date.now();
-  addLogEntry('start', `Partida iniciada por ${firstPlayer.name}`, null, false, firstPlayer.id);
+  addLogEntry(
+    'turn',
+    `Turno ${state.turnNumber} de ${firstPlayer.name} iniciou`,
+    null,
+    false,
+    firstPlayer.id,
+  );
   render();
 }
 
@@ -1602,13 +1603,10 @@ function takePriority(playerId) {
   finishPendingLifeChanges();
   tickTimer();
   const before = gameSnapshot();
-  const previousPriority = state.players.find((item) => item.id === state.priorityPlayerId);
   state.priorityPlayerId = playerId === state.priorityPlayerId ? null : playerId;
   lastTimerTick = Date.now();
   const message = state.priorityPlayerId
-    ? previousPriority
-      ? `${previousPriority.name} encerrou a prioridade; ${player.name} pegou a prioridade`
-      : `${player.name} pegou a prioridade`
+    ? `${player.name} pegou a prioridade`
     : `${player.name} encerrou a prioridade`;
   addLogEntry('priority', message, before, true, player.id);
   render();
