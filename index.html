@@ -54,7 +54,7 @@
         <strong class="turn-status">Turno <span id="turn-number">1</span></strong>
         <strong class="paused-status" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z" /></svg>
-          Jogo pausado
+          Pausado
         </strong>
         <span class="pass-label">Passar turno</span>
       </button>
@@ -127,6 +127,20 @@
       <ol id="game-log-list" class="game-log-list"></ol>
     </dialog>
 
+    <dialog id="log-restore-dialog" class="modal confirm-modal log-restore-modal">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Voltar no histórico</p>
+          <h2>Restaurar este momento?</h2>
+        </div>
+      </div>
+      <p id="log-restore-message"></p>
+      <div class="confirm-actions">
+        <button class="cancel-log-restore" type="button">Cancelar</button>
+        <button id="confirm-log-restore" class="primary-button" type="button">Restaurar partida</button>
+      </div>
+    </dialog>
+
     <dialog id="new-game-dialog" class="modal confirm-modal new-game-modal">
       <div class="modal-header">
         <div>
@@ -147,20 +161,23 @@
             <button id="new-game-add-player" type="button" aria-label="Adicionar jogador">+</button>
           </div>
         </section>
-        <section class="new-game-setting new-game-life-setting">
-          <div>
-            <strong>Vida inicial</strong>
-            <small>Total inicial de cada jogador</small>
+        <fieldset class="new-game-life">
+          <legend>Vida inicial de cada jogador</legend>
+          <div class="time-options life-options">
+            <label><input type="radio" name="new-game-life" value="20"><span>20</span></label>
+            <label><input type="radio" name="new-game-life" value="30"><span>30</span></label>
+            <label><input type="radio" name="new-game-life" value="40" checked><span>40</span></label>
+            <label><input type="radio" name="new-game-life" value="custom"><span>Personalizado</span></label>
           </div>
-          <select id="new-game-starting-life">
-            <option value="20">20 — Standard / Modern</option>
-            <option value="30">30 — Brawl</option>
-            <option value="40">40 — Commander</option>
-          </select>
-        </section>
+          <label id="custom-life-field" class="custom-time-field" hidden>
+            <span>Vida personalizada</span>
+            <span><input id="new-game-custom-life" type="number" min="1" max="999" inputmode="numeric" value="50"><b>pontos</b></span>
+          </label>
+        </fieldset>
         <fieldset class="new-game-time">
           <legend>Tempo de cada jogador</legend>
           <div class="time-options">
+            <label><input type="radio" name="new-game-time" value="none"><span>Sem tempo</span></label>
             <label><input type="radio" name="new-game-time" value="5"><span>5 min</span></label>
             <label><input type="radio" name="new-game-time" value="10"><span>10 min</span></label>
             <label><input type="radio" name="new-game-time" value="15"><span>15 min</span></label>
@@ -172,6 +189,14 @@
             <span><input id="new-game-custom-time" type="number" min="1" max="180" inputmode="numeric" value="45"><b>min</b></span>
           </label>
         </fieldset>
+        <label class="new-game-setting foolish-token-setting">
+          <div>
+            <strong>Ficha da Burrice</strong>
+            <small>Uma ficha disponível para cada jogador</small>
+          </div>
+          <input id="new-game-use-foolish-token" type="checkbox" checked />
+          <span class="setting-switch" aria-hidden="true"></span>
+        </label>
       </div>
       <p>Vidas, relógios, turno, prioridade e dano de comandante serão reiniciados. Os jogadores salvos serão mantidos.</p>
       <div class="confirm-actions">
@@ -193,25 +218,26 @@
         <button class="life-zone increase" type="button" aria-label="Aumentar vida"><span aria-hidden="true">+</span></button>
         <div class="player-content">
           <div class="player-name-wrap">
-            <button class="player-name" type="button" aria-label="Editar nome do jogador"></button>
             <i class="first-player-mark" hidden>#1</i>
+            <button class="player-name" type="button" aria-label="Editar nome do jogador"></button>
           </div>
           <div class="player-status-counters" aria-label="Contadores ativos"></div>
           <div class="life-total" aria-live="polite">40</div>
-          <div class="turn-timer">
-            <span class="turn-indicator" aria-hidden="true"></span>
-            <span class="timer-value">30:00</span>
-          </div>
           <div class="life-change" aria-hidden="true"></div>
           <div class="art-credit"></div>
         </div>
         <div class="player-toolbar" aria-label="Ações do jogador">
-          <button class="priority-button" type="button">
-            <span class="priority-dot" aria-hidden="true"></span>
-            Pegar prioridade
-          </button>
+          <div class="turn-toolbar-group">
+            <div class="turn-timer">
+              <span class="turn-indicator" aria-hidden="true"></span>
+              <span class="timer-value">30:00</span>
+            </div>
+            <button class="priority-button" type="button">
+              Pegar prioridade
+            </button>
+          </div>
           <button class="player-settings player-counters" type="button" aria-label="Adicionar contador" title="Adicionar contador">
-            <span class="counter-icon" aria-hidden="true">+</span>
+            <span class="kebab-icon" aria-hidden="true"><i></i><i></i><i></i></span>
           </button>
         </div>
       </section>

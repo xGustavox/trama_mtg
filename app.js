@@ -4,14 +4,14 @@ const TURN_SECONDS = 30 * 60;
 const STORAGE_KEY = 'mesa-arcana-game-v1';
 const PROFILES_KEY = 'mesa-arcana-player-profiles-v1';
 const COLORS = [
-  '40, 158, 80',
-  '47, 105, 205',
-  '193, 68, 55',
-  '190, 127, 25',
-  '26, 151, 177',
-  '132, 61, 177',
-  '112, 154, 32',
-  '185, 51, 111',
+  '4, 42, 43',
+  '36, 22, 35',
+  '252, 208, 161',
+  '10, 16, 13',
+  '163, 124, 64',
+  '229, 116, 188',
+  '80, 128, 142',
+  '91, 48, 0',
 ];
 const COLOR_CHOICES = [
   '42, 39, 44',
@@ -65,12 +65,16 @@ const arrangeTableLabel = document.querySelector('#arrange-table-label');
 const newGameDialog = document.querySelector('#new-game-dialog');
 const newGamePlayerCount = document.querySelector('#new-game-player-count');
 const newGameCustomTime = document.querySelector('#new-game-custom-time');
-const newGameStartingLife = document.querySelector('#new-game-starting-life');
+const newGameCustomLife = document.querySelector('#new-game-custom-life');
+const newGameUseFoolishToken = document.querySelector('#new-game-use-foolish-token');
 const customTimeField = document.querySelector('#custom-time-field');
+const customLifeField = document.querySelector('#custom-life-field');
 const profilesDialog = document.querySelector('#profiles-dialog');
 const gameLogDialog = document.querySelector('#game-log-dialog');
 const gameLogList = document.querySelector('#game-log-list');
 const gameLogEmpty = document.querySelector('#game-log-empty');
+const logRestoreDialog = document.querySelector('#log-restore-dialog');
+const logRestoreMessage = document.querySelector('#log-restore-message');
 const playerSettingsName = document.querySelector('#player-settings-name');
 const colorOptions = document.querySelector('#color-options');
 const customColor = document.querySelector('#custom-color');
@@ -96,6 +100,10 @@ let victorySoundTimer = null;
 let victoryConfettiTimer = null;
 let reverseTurnHoldTimer = null;
 let reverseTurnTriggered = false;
+let turnButtonRotation = 0;
+let turnButtonSide = 0;
+let pendingLogRestoreId = null;
+const timerBlockingModals = new Set();
 
 function randomBytes(length) {
   const bytes = new Uint8Array(length);
@@ -215,6 +223,14 @@ function stopAllSounds() {
 function startVictoryCelebration() {
   clearTimeout(victoryConfettiTimer);
   victoryConfettiTimer = null;
+  const winnerCard = app.querySelector(`[data-player-id="${state.winnerPlayerId}"]`);
+  const winnerRect = winnerCard?.getBoundingClientRect();
+  const originX = winnerRect ? winnerRect.left + winnerRect.width / 2 : innerWidth / 2;
+  const originY = winnerRect ? winnerRect.top + winnerRect.height / 2 : innerHeight / 2;
+  victoryConfetti.style.setProperty('--victory-x', `${originX}px`);
+  victoryConfetti.style.setProperty('--victory-y', `${originY}px`);
+  victoryConfetti.style.setProperty('--victory-shift-x', `${originX - innerWidth / 2}px`);
+  victoryConfetti.style.setProperty('--victory-shift-y', `${originY - innerHeight / 2}px`);
   victoryConfetti.hidden = false;
   if (location.protocol === 'file:' || !globalThis.lottie) {
     victoryConfetti.classList.add('css-confetti');
@@ -274,6 +290,7 @@ function checkForWinner() {
     stopAllSounds();
     stopVictoryCelebration();
   }
+  updateControls();
   saveState();
 }
 
@@ -286,9 +303,22 @@ function playDeathSoundIfNeeded(player, wasEliminated) {
 
 function isPlayerEliminated(player) {
   return player.life <= 0
-    || player.timerSeconds <= 0
+    || (Number.isFinite(player.timerSeconds) && player.timerSeconds <= 0)
     || player.poisonCounters >= 10
     || Object.values(player.commanderDamage || {}).some((damage) => damage >= 21);
+}
+
+function pauseTimerForPlayerModal(playerId, modal) {
+  if (state.timerMinutes === null || !state.gameStarted) return;
+  if (playerId !== (state.priorityPlayerId || state.turnPlayerId)) return;
+  tickTimer();
+  timerBlockingModals.add(modal);
+  lastTimerTick = Date.now();
+}
+
+function releaseTimerForModal(modal) {
+  if (!timerBlockingModals.delete(modal)) return;
+  lastTimerTick = Date.now();
 }
 
 function makePlayer(index, life = 40, timerSeconds = TURN_SECONDS) {
@@ -313,6 +343,9 @@ function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (saved?.players?.length >= MIN_PLAYERS && saved.players.length <= MAX_PLAYERS) {
+      const timerMinutes = saved.timerMinutes === null
+        ? null
+        : Number.isInteger(saved.timerMinutes) && saved.timerMinutes > 0 ? saved.timerMinutes : 30;
       const players = saved.players.map((player, index) => ({
         ...player,
         color: player.color || COLORS[index],
@@ -321,7 +354,9 @@ function loadState() {
         poisonCounters: Number.isFinite(player.poisonCounters) ? Math.max(0, player.poisonCounters) : 0,
         radiationCounters: Number.isFinite(player.radiationCounters) ? Math.max(0, player.radiationCounters) : 0,
         foolishTokenAvailable: player.foolishTokenAvailable !== false,
-        timerSeconds: Number.isFinite(player.timerSeconds) ? player.timerSeconds : TURN_SECONDS,
+        timerSeconds: timerMinutes === null
+          ? null
+          : Number.isFinite(player.timerSeconds) ? player.timerSeconds : timerMinutes * 60,
       }));
       const priorityPlayerId = players.some((player) => player.id === saved.priorityPlayerId && !isPlayerEliminated(player))
         ? saved.priorityPlayerId
@@ -331,14 +366,14 @@ function loadState() {
         : players[0].id;
       const turnNumber = Number.isInteger(saved.turnNumber) && saved.turnNumber > 0 ? saved.turnNumber : 1;
       const gameStarted = typeof saved.gameStarted === 'boolean' ? saved.gameStarted : true;
-      const gamePaused = typeof saved.gamePaused === 'boolean' ? saved.gamePaused : false;
+      const gamePaused = timerMinutes === null
+        ? false
+        : typeof saved.gamePaused === 'boolean' ? saved.gamePaused : false;
       const soundMuted = saved.soundMuted === true;
+      const useFoolishToken = saved.useFoolishToken !== false;
       const winnerPlayerId = players.some((player) => player.id === saved.winnerPlayerId)
         ? saved.winnerPlayerId
         : null;
-      const timerMinutes = Number.isInteger(saved.timerMinutes) && saved.timerMinutes > 0
-        ? saved.timerMinutes
-        : 30;
       const savedTableOrder = Array.isArray(saved.tableOrder) ? saved.tableOrder : [];
       const tableOrder = savedTableOrder.length === players.length
         && new Set(savedTableOrder).size === players.length
@@ -351,7 +386,7 @@ function loadState() {
       const gameLog = Array.isArray(saved.gameLog) ? saved.gameLog : [];
       const redoLog = Array.isArray(saved.redoLog) ? saved.redoLog : [];
       const savedPendingLifeChanges = Array.isArray(saved.pendingLifeChanges) ? saved.pendingLifeChanges : [];
-      return { ...saved, players, tableOrder, priorityPlayerId, turnPlayerId, roundStartPlayerId, turnNumber, gameStarted, gamePaused, soundMuted, winnerPlayerId, timerMinutes, gameLog, redoLog, savedPendingLifeChanges };
+      return { ...saved, players, tableOrder, priorityPlayerId: timerMinutes === null ? null : priorityPlayerId, turnPlayerId, roundStartPlayerId, turnNumber, gameStarted, gamePaused, soundMuted, useFoolishToken, winnerPlayerId, timerMinutes, gameLog, redoLog, savedPendingLifeChanges };
     }
   } catch (_) {
     // A partida simplesmente recomeça se os dados locais estiverem inválidos.
@@ -360,6 +395,7 @@ function loadState() {
   return {
     startingLife: 40,
     timerMinutes: 30,
+    useFoolishToken: true,
     players,
     tableOrder: players.map((player) => player.id),
     priorityPlayerId: null,
@@ -423,6 +459,7 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({
     startingLife: state.startingLife,
     timerMinutes: state.timerMinutes,
+    useFoolishToken: state.useFoolishToken,
     priorityPlayerId: state.priorityPlayerId,
     turnPlayerId: state.turnPlayerId,
     roundStartPlayerId: state.roundStartPlayerId,
@@ -450,6 +487,7 @@ function gameSnapshot() {
     players: state.players.map((player) => ({
       id: player.id,
       life: player.life,
+      timerSeconds: player.timerSeconds,
       commanderDamage: { ...player.commanderDamage },
       poisonCounters: player.poisonCounters,
       radiationCounters: player.radiationCounters,
@@ -461,6 +499,7 @@ function gameSnapshot() {
     turnNumber: state.turnNumber,
     gamePaused: state.gamePaused,
     winnerPlayerId: state.winnerPlayerId,
+    tableOrder: [...state.tableOrder],
   };
 }
 
@@ -470,6 +509,9 @@ function restoreGameSnapshot(snapshot) {
     const player = state.players.find((item) => item.id === savedPlayer.id);
     if (!player) return;
     player.life = savedPlayer.life;
+    if (Number.isFinite(savedPlayer.timerSeconds) || savedPlayer.timerSeconds === null) {
+      player.timerSeconds = savedPlayer.timerSeconds;
+    }
     player.commanderDamage = { ...savedPlayer.commanderDamage };
     player.poisonCounters = savedPlayer.poisonCounters || 0;
     player.radiationCounters = savedPlayer.radiationCounters || 0;
@@ -481,6 +523,11 @@ function restoreGameSnapshot(snapshot) {
   state.turnNumber = snapshot.turnNumber;
   state.gamePaused = snapshot.gamePaused;
   state.winnerPlayerId = snapshot.winnerPlayerId || null;
+  if (Array.isArray(snapshot.tableOrder)
+    && snapshot.tableOrder.length === state.players.length
+    && snapshot.tableOrder.every((id) => state.players.some((player) => player.id === id))) {
+    state.tableOrder = [...snapshot.tableOrder];
+  }
   if (state.winnerPlayerId) startVictoryCelebration();
   else if (hadWinner) {
     stopAllSounds();
@@ -488,8 +535,9 @@ function restoreGameSnapshot(snapshot) {
   }
 }
 
-function addLogEntry(type, message, before, undoable = true) {
+function addLogEntry(type, message, before, undoable = true, playerId = null) {
   if (!state.gameStarted) return;
+  const player = state.players.find((item) => item.id === playerId);
   state.gameLog.push({
     id: createId(),
     type,
@@ -498,10 +546,24 @@ function addLogEntry(type, message, before, undoable = true) {
     undoable,
     before,
     after: gameSnapshot(),
+    playerId: player?.id || null,
+    playerVisual: player ? { name: player.name, color: player.color, image: player.image } : null,
   });
   state.redoLog = [];
   saveState();
   updateControls();
+}
+
+function logPlayerEliminationChange(player, wasEliminated, before) {
+  const eliminated = isPlayerEliminated(player);
+  if (eliminated === wasEliminated) return;
+  addLogEntry(
+    eliminated ? 'death' : 'revival',
+    eliminated ? `${player.name} morreu` : `${player.name} ressuscitou`,
+    before,
+    true,
+    player.id,
+  );
 }
 
 function updateControls() {
@@ -509,10 +571,13 @@ function updateControls() {
   const passLabel = passTurnButton.querySelector('.pass-label');
   const turnStatus = passTurnButton.querySelector('.turn-status');
   const pausedStatus = passTurnButton.querySelector('.paused-status');
-  const priorityActive = Boolean(state.priorityPlayerId);
-  turnStatus.hidden = isReordering || !state.gameStarted || state.gamePaused || priorityActive;
-  pausedStatus.hidden = !state.gameStarted || !state.gamePaused || isReordering;
-  passLabel.textContent = isChoosingStarter
+  const priorityActive = state.timerMinutes !== null && Boolean(state.priorityPlayerId);
+  const gameWon = state.gameStarted && Boolean(state.winnerPlayerId);
+  turnStatus.hidden = gameWon || isReordering || !state.gameStarted || state.gamePaused || priorityActive;
+  pausedStatus.hidden = gameWon || !state.gameStarted || !state.gamePaused || isReordering;
+  passLabel.textContent = gameWon
+    ? 'GG'
+    : isChoosingStarter
     ? 'Sorteando…'
     : isReordering
       ? 'Confirmar'
@@ -522,21 +587,28 @@ function updateControls() {
   passTurnButton.classList.toggle('no-status', turnStatus.hidden && pausedStatus.hidden);
   passTurnButton.classList.toggle('game-paused', state.gameStarted && state.gamePaused);
   passTurnButton.classList.toggle('priority-active', priorityActive);
+  passTurnButton.classList.toggle('game-over', gameWon);
   passTurnButton.classList.toggle('confirm-reorder', isReordering);
   passTurnButton.classList.toggle(
     'ready-to-start',
-    !isReordering && !isChoosingStarter && (!state.gameStarted || state.gamePaused),
+    !gameWon && !isReordering && !isChoosingStarter && (!state.gameStarted || state.gamePaused),
   );
-  passTurnButton.disabled = isChoosingStarter;
-  const orientedPlayerId = state.priorityPlayerId || state.turnPlayerId;
+  passTurnButton.disabled = isChoosingStarter || gameWon;
+  const orientedPlayerId = state.winnerPlayerId || state.priorityPlayerId || state.turnPlayerId;
   const turnPlayerTableIndex = tableIndexForPlayer(orientedPlayerId);
-  const turnButtonRotation = state.gameStarted && !isReordering
+  const nextTurnButtonSide = state.gameStarted && !isReordering
     && turnPlayerTableIndex < opponentCount(state.players.length)
-    ? 180
+    ? 1
     : 0;
+  if (state.gameStarted && !isReordering && nextTurnButtonSide !== turnButtonSide) {
+    turnButtonRotation += 180;
+    turnButtonSide = nextTurnButtonSide;
+  }
   turnControls.style.setProperty('--turn-button-rotation', `${turnButtonRotation}deg`);
   passTurnButton.setAttribute('aria-label', isReordering
     ? 'Confirmar reorganização da mesa'
+    : gameWon
+      ? 'GG — partida encerrada'
     : state.gamePaused
       ? 'Continuar jogo'
       : priorityActive ? 'Encerrar prioridade' : state.gameStarted ? `Passar o turno ${state.turnNumber}` : 'Começar jogo');
@@ -546,7 +618,7 @@ function updateControls() {
   document.body.classList.toggle('is-reordering', isReordering);
   document.body.classList.toggle('is-choosing-starter', isChoosingStarter);
   document.body.classList.toggle('is-game-paused', state.gamePaused);
-  pauseGameButton.disabled = !state.gameStarted || isChoosingStarter;
+  pauseGameButton.disabled = !state.gameStarted || state.timerMinutes === null || isChoosingStarter;
   pauseGameButton.classList.toggle('is-paused', state.gamePaused);
   pauseGameLabel.textContent = state.gamePaused ? 'Continuar' : 'Pausar';
   soundButton.classList.toggle('is-muted', state.soundMuted);
@@ -578,7 +650,7 @@ function finishLifeChange(playerId) {
   const player = state.players.find((item) => item.id === playerId);
   if (!player) return;
   const action = pending.delta > 0 ? 'ganhou' : 'perdeu';
-  addLogEntry('life', `${player.name} ${action} ${Math.abs(pending.delta)} de vida`, pending.before);
+  addLogEntry('life', `${player.name} ${action} ${Math.abs(pending.delta)} de vida`, pending.before, true, player.id);
 }
 
 function finishPendingLifeChanges() {
@@ -678,6 +750,9 @@ function bindPlayerNameButton(button, player, fallbackName) {
 function render() {
   finishPendingLifeChanges();
   app.replaceChildren();
+  timerBlockingModals.forEach((modal) => {
+    if (!modal.isConnected) releaseTimerForModal(modal);
+  });
   app.className = `count-${state.players.length}${isReordering ? ' reorder-mode' : ''}`;
 
   playersInTableOrder().forEach((player, index) => {
@@ -690,14 +765,14 @@ function render() {
     }
     if (player.id === state.turnPlayerId && !state.priorityPlayerId) card.classList.add('is-turn');
     if (isChoosingStarter && player.id === state.turnPlayerId) card.classList.add('is-lottery');
-    if (player.id === state.priorityPlayerId) card.classList.add('has-priority');
+    if (state.timerMinutes !== null && player.id === state.priorityPlayerId) card.classList.add('has-priority');
     if (isPlayerEliminated(player)) card.classList.add('is-eliminated');
     if (player.id === state.winnerPlayerId) card.classList.add('is-winner');
-    if (state.gameStarted && !state.gamePaused && !isPlayerEliminated(player)
+    if (state.timerMinutes !== null && state.gameStarted && !state.gamePaused && !isPlayerEliminated(player)
       && player.id === (state.priorityPlayerId || state.turnPlayerId)) {
       card.classList.add('is-timing');
     }
-    if (player.timerSeconds <= 5 * 60) card.classList.add('time-low');
+    if (Number.isFinite(player.timerSeconds) && player.timerSeconds <= 5 * 60) card.classList.add('time-low');
 
     const backdrop = card.querySelector('.player-backdrop');
     if (player.image) {
@@ -711,7 +786,8 @@ function render() {
     card.querySelector('.first-player-mark').hidden = player.id !== state.roundStartPlayerId;
 
     card.querySelector('.life-total').textContent = player.life;
-    card.querySelector('.timer-value').textContent = formatTime(player.timerSeconds);
+    card.querySelector('.turn-toolbar-group').hidden = state.timerMinutes === null;
+    card.querySelector('.timer-value').textContent = state.timerMinutes === null ? '' : formatTime(player.timerSeconds);
     const decrease = card.querySelector('.decrease');
     const increase = card.querySelector('.increase');
     decrease.disabled = isReordering || !state.gameStarted;
@@ -722,7 +798,8 @@ function render() {
     settingsButton.disabled = isReordering;
     settingsButton.addEventListener('click', () => openImagePicker(player.id));
     const foolishToken = card.querySelector('.foolish-token');
-    foolishToken.hidden = !state.gameStarted || !player.foolishTokenAvailable || isPlayerEliminated(player);
+    foolishToken.hidden = !state.gameStarted || !state.useFoolishToken
+      || !player.foolishTokenAvailable || isPlayerEliminated(player);
     foolishToken.disabled = isReordering;
     foolishToken.addEventListener('click', () => openFoolishTokenConfirmation(player.id, card));
     const toolbar = card.querySelector('.player-toolbar');
@@ -754,12 +831,13 @@ function render() {
       );
       countersButton.addEventListener('click', () => openCounterTypePopover(player.id, card, countersButton));
       const priorityButton = card.querySelector('.priority-button');
+      priorityButton.hidden = state.timerMinutes === null;
       priorityButton.lastChild.textContent = player.id === state.priorityPlayerId
         ? ' Encerrar'
         : ' Prioridade';
       priorityButton.addEventListener('click', () => takePriority(player.id));
       const commanderGroup = document.createElement('div');
-      commanderGroup.className = 'commander-counter-group';
+      commanderGroup.className = 'commander-counter-group player-commander-counters';
       otherPlayersClockwiseFrom(player.id).forEach((commander) => {
         const damage = player.commanderDamage[commander.id] || 0;
         const button = document.createElement('button');
@@ -780,7 +858,7 @@ function render() {
         button.addEventListener('click', () => openCommanderDamage(player.id, commander.id, card));
         commanderGroup.append(button);
       });
-      toolbar.insertBefore(commanderGroup, countersButton);
+      card.querySelector('.player-content').append(commanderGroup);
       syncStatusCounterChips(player, card);
     }
 
@@ -862,8 +940,10 @@ function bindReorderHandle(handle, card, playerId) {
 }
 
 function startReordering() {
+  tickTimer();
   isReordering = true;
   draftTableOrder = [...state.tableOrder];
+  lastTimerTick = Date.now();
   render();
 }
 
@@ -871,6 +951,7 @@ function finishReordering() {
   state.tableOrder = draftTableOrder;
   draftTableOrder = null;
   isReordering = false;
+  lastTimerTick = Date.now();
   saveState();
   render();
 }
@@ -890,6 +971,7 @@ function changeLife(playerId, amount) {
   const player = state.players.find((item) => item.id === playerId);
   if (!player) return;
   const wasEliminated = isPlayerEliminated(player);
+  const beforeChange = gameSnapshot();
   const pending = pendingLifeChanges.get(playerId) || { delta: 0, before: gameSnapshot() };
   const nextLife = Math.max(0, player.life + amount);
   const appliedChange = nextLife - player.life;
@@ -912,6 +994,7 @@ function changeLife(playerId, amount) {
       app.querySelector(`[data-player-id="${turnPlayer.id}"]`)?.classList.add('is-turn', 'is-timing');
     }
   }
+  logPlayerEliminationChange(player, wasEliminated, beforeChange);
   total.classList.remove('bump-up', 'bump-down');
   void total.offsetWidth;
   total.classList.add(appliedChange > 0 ? 'bump-up' : 'bump-down');
@@ -924,7 +1007,7 @@ function changeLife(playerId, amount) {
     : pending.delta < 0 ? `−${Math.abs(pending.delta)}` : '0';
   change.classList.toggle('change-left', amount < 0);
   change.classList.toggle('change-right', amount > 0);
-  change.classList.add('visible');
+  change.classList.toggle('visible', pending.delta !== 0);
   clearTimeout(lifeChangeTimers.get(playerId));
   lifeChangeTimers.set(playerId, setTimeout(() => finishLifeChange(playerId), 6000));
   saveState();
@@ -994,7 +1077,7 @@ function loadCounterIcon(element, counter) {
 
 function openFoolishTokenConfirmation(playerId, card) {
   const player = state.players.find((item) => item.id === playerId);
-  if (!player || !state.gameStarted || !player.foolishTokenAvailable
+  if (!player || !state.gameStarted || !state.useFoolishToken || !player.foolishTokenAvailable
     || isPlayerEliminated(player) || card.querySelector('.card-counter-panel')) return;
   const panel = document.createElement('section');
   panel.className = 'card-counter-panel foolish-token-panel';
@@ -1029,14 +1112,18 @@ function openFoolishTokenConfirmation(playerId, card) {
   orientation.append(content);
   panel.append(background, orientation);
   card.append(panel);
+  pauseTimerForPlayerModal(player.id, panel);
 
-  const close = () => panel.remove();
+  const close = () => {
+    panel.remove();
+    releaseTimerForModal(panel);
+  };
   cancel.addEventListener('click', close);
   confirm.addEventListener('click', () => {
     const before = gameSnapshot();
     player.foolishTokenAvailable = false;
     playSound(SOUND_PATHS.foolishToken[randomIndex(SOUND_PATHS.foolishToken.length)]);
-    addLogEntry('token', `${player.name} usou a Ficha da Burrice`, before);
+    addLogEntry('token', `${player.name} usou a Ficha da Burrice`, before, true, player.id);
     render();
   });
   panel.addEventListener('click', (event) => {
@@ -1071,13 +1158,28 @@ function syncStatusCounterChips(player, card) {
 function openCounterTypePopover(playerId, card, anchor) {
   const existing = card.querySelector('.counter-type-popover');
   if (existing) {
-    existing.remove();
+    existing.closePopover();
     return;
   }
   if (card.querySelector('.card-counter-panel')) return;
   const popover = document.createElement('div');
   popover.className = 'counter-type-popover';
   popover.setAttribute('role', 'menu');
+  const closePopover = () => {
+    popover.remove();
+    document.removeEventListener('pointerdown', closeOnOutsidePointer, true);
+  };
+  const closeOnOutsidePointer = (event) => {
+    if (!popover.isConnected) {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer, true);
+      return;
+    }
+    if (popover.contains(event.target) || anchor.contains(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closePopover();
+  };
+  popover.closePopover = closePopover;
   const cardRect = card.getBoundingClientRect();
   const anchorRect = anchor.getBoundingClientRect();
   const center = anchorRect.left + anchorRect.width / 2 - cardRect.left;
@@ -1100,12 +1202,13 @@ function openCounterTypePopover(playerId, card, anchor) {
     label.textContent = counter.label;
     button.append(image, label);
     button.addEventListener('click', () => {
-      popover.remove();
+      closePopover();
       openPlayerCounter(playerId, type, card);
     });
     popover.append(button);
   });
   card.append(popover);
+  setTimeout(() => document.addEventListener('pointerdown', closeOnOutsidePointer, true));
 }
 
 function createCardCounterPanel(card, backgroundPlayer, label) {
@@ -1132,6 +1235,7 @@ function createCardCounterPanel(card, backgroundPlayer, label) {
   orientation.append(content, closeButton);
   panel.append(background, orientation);
   card.append(panel);
+  pauseTimerForPlayerModal(card.dataset.playerId, panel);
   return { panel, background, closeButton, content };
 }
 
@@ -1168,11 +1272,11 @@ function syncGameCardStates() {
     const eliminated = isPlayerEliminated(player);
     card.classList.toggle('is-eliminated', eliminated);
     card.classList.toggle('is-turn', player.id === state.turnPlayerId && !state.priorityPlayerId);
-    card.classList.toggle('has-priority', player.id === state.priorityPlayerId);
+    card.classList.toggle('has-priority', state.timerMinutes !== null && player.id === state.priorityPlayerId);
     card.classList.toggle('is-winner', player.id === state.winnerPlayerId);
     card.classList.toggle(
       'is-timing',
-      state.gameStarted && !state.gamePaused && !eliminated
+      state.timerMinutes !== null && state.gameStarted && !state.gamePaused && !eliminated
         && player.id === (state.priorityPlayerId || state.turnPlayerId),
     );
     card.querySelector('.life-total').textContent = player.life;
@@ -1212,11 +1316,12 @@ function openCommanderDamage(targetId, sourceId, card) {
   const sourceName = document.createElement('strong');
   sourceName.textContent = source.name;
   const description = document.createElement('span');
-  description.textContent = `dano de comandante em ${target.name}`;
+  description.textContent = `em ${target.name}`;
   matchup.append(sourceName, description);
 
   const control = createCounterControl('Dano de comandante', damageOnOpen, (amount, output) => {
     const wasEliminated = isPlayerEliminated(target);
+    const beforeChange = gameSnapshot();
     const current = target.commanderDamage[sourceId] || 0;
     const next = Math.max(0, current + amount);
     const appliedDamage = next - current;
@@ -1228,8 +1333,10 @@ function openCommanderDamage(targetId, sourceId, card) {
     if (isPlayerEliminated(target) && state.priorityPlayerId === target.id) state.priorityPlayerId = null;
     output.textContent = next;
     syncGameCardStates();
+    logPlayerEliminationChange(target, wasEliminated, beforeChange);
     saveState();
   });
+  control.classList.add('single-player-counter');
   const hint = document.createElement('p');
   hint.className = 'card-counter-hint';
   hint.textContent = 'Toque para alterar 1 · Segure para alterar 10 continuamente';
@@ -1239,6 +1346,7 @@ function openCommanderDamage(targetId, sourceId, card) {
     const damageAfter = target.commanderDamage[sourceId] || 0;
     const damageChange = damageAfter - damageOnOpen;
     panel.remove();
+    releaseTimerForModal(panel);
     if (damageChange !== 0) {
       const action = damageChange > 0 ? 'causou' : 'removeu';
       const direction = damageChange > 0 ? 'a' : 'de';
@@ -1246,6 +1354,8 @@ function openCommanderDamage(targetId, sourceId, card) {
         'commander',
         `${source.name} ${action} ${Math.abs(damageChange)} de dano de comandante ${direction} ${target.name}`,
         snapshotOnOpen,
+        true,
+        target.id,
       );
     }
     syncGameCardStates();
@@ -1275,8 +1385,11 @@ function openPlayerCounter(playerId, type, card) {
   );
   panel.classList.add('player-counter-panel', `${type}-counter-panel`);
   panel.style.setProperty('--counter-color', counter.color);
-  loadCounterIcon(background, counter);
   background.classList.add('player-counters-background');
+  const icon = document.createElement('div');
+  icon.className = `player-counter-icon ${type}-counter-icon`;
+  loadCounterIcon(icon, counter);
+  panel.append(icon);
   const heading = document.createElement('div');
   heading.className = 'card-counter-matchup';
   const title = document.createElement('strong');
@@ -1287,6 +1400,7 @@ function openPlayerCounter(playerId, type, card) {
 
   const control = createCounterControl(counter.label, valueOnOpen, (amount, output) => {
     const wasEliminated = isPlayerEliminated(player);
+    const beforeChange = gameSnapshot();
     const next = Math.max(0, player[counter.property] + amount);
     if (next === player[counter.property]) return;
     player[counter.property] = next;
@@ -1295,6 +1409,7 @@ function openPlayerCounter(playerId, type, card) {
     if (isPlayerEliminated(player) && state.priorityPlayerId === player.id) state.priorityPlayerId = null;
     output.textContent = next;
     syncGameCardStates();
+    logPlayerEliminationChange(player, wasEliminated, beforeChange);
     saveState();
   });
   control.classList.add('single-player-counter');
@@ -1308,11 +1423,14 @@ function openPlayerCounter(playerId, type, card) {
   function closePanel() {
     const change = player[counter.property] - valueOnOpen;
     panel.remove();
+    releaseTimerForModal(panel);
     if (change) {
       addLogEntry(
         'counters',
         `${player.name}: ${counter.label.toLowerCase()} ${change > 0 ? '+' : '−'}${Math.abs(change)}`,
         snapshotOnOpen,
+        true,
+        player.id,
       );
     }
     syncStatusCounterChips(player, card);
@@ -1369,7 +1487,8 @@ function animateCommanderAttack(sourceId, targetId) {
 }
 
 function tickTimer() {
-  if (!state.gameStarted || state.gamePaused || isGameLogOpen || state.winnerPlayerId) {
+  if (state.timerMinutes === null || !state.gameStarted || state.gamePaused || isReordering
+    || isGameLogOpen || timerBlockingModals.size > 0 || state.winnerPlayerId) {
     lastTimerTick = Date.now();
     return;
   }
@@ -1387,7 +1506,8 @@ function tickTimer() {
   if (player.timerSeconds === 0) {
     if (state.priorityPlayerId === player.id) state.priorityPlayerId = null;
     playDeathSoundIfNeeded(player, false);
-    addLogEntry('timeout', `Tempo de ${player.name} esgotou`, before, false);
+    addLogEntry('timeout', `Tempo de ${player.name} esgotou`, before, false, player.id);
+    logPlayerEliminationChange(player, false, before);
     render();
     return;
   }
@@ -1396,11 +1516,11 @@ function tickTimer() {
   if (!card) return;
   card.querySelector('.timer-value').textContent = formatTime(player.timerSeconds);
   card.classList.toggle('time-low', player.timerSeconds <= 5 * 60);
-  const timer = card.querySelector('.turn-timer');
-  timer.classList.remove('low-time-tick');
+  const timerGroup = card.querySelector('.turn-toolbar-group');
+  timerGroup.classList.remove('low-time-tick');
   if (player.timerSeconds <= 5 * 60) {
-    void timer.offsetWidth;
-    timer.classList.add('low-time-tick');
+    void timerGroup.offsetWidth;
+    timerGroup.classList.add('low-time-tick');
   }
   saveState();
 }
@@ -1409,7 +1529,6 @@ function passTurn(direction = 1) {
   finishPendingLifeChanges();
   tickTimer();
   const before = gameSnapshot();
-  const previousPlayer = state.players.find((player) => player.id === state.turnPlayerId);
   const currentIndex = state.tableOrder.indexOf(state.turnPlayerId);
   const roundStartIndex = state.tableOrder.indexOf(state.roundStartPlayerId);
   let nextIndex = currentIndex;
@@ -1429,15 +1548,21 @@ function passTurn(direction = 1) {
   if (!nextPlayer || isPlayerEliminated(nextPlayer)) return;
   state.turnPlayerId = state.tableOrder[nextIndex];
   state.priorityPlayerId = null;
+  const previousTurnNumber = state.turnNumber;
   if (crossedRoundStart) state.turnNumber = Math.max(1, state.turnNumber + direction);
   lastTimerTick = Date.now();
-  addLogEntry(
-    'turn',
-    direction > 0
-      ? `Turno passou de ${previousPlayer.name} para ${nextPlayer.name}`
-      : `Turno voltou de ${previousPlayer.name} para ${nextPlayer.name}`,
-    before,
-  );
+  if (state.turnNumber !== previousTurnNumber) {
+    addLogEntry(
+      'turn',
+      state.turnNumber > previousTurnNumber
+        ? `Turno incrementado: ${previousTurnNumber} → ${state.turnNumber}`
+        : `Turno reduzido: ${previousTurnNumber} → ${state.turnNumber}`,
+      before,
+    );
+  } else {
+    state.redoLog = [];
+    saveState();
+  }
   if (randomIndex(100) < 3) {
     playSound(SOUND_PATHS.randomTurn[randomIndex(SOUND_PATHS.randomTurn.length)]);
   }
@@ -1466,11 +1591,12 @@ function startOrPassTurn() {
   state.gameStarted = true;
   state.gamePaused = false;
   lastTimerTick = Date.now();
-  addLogEntry('start', `Partida iniciada por ${firstPlayer.name}`, null, false);
+  addLogEntry('start', `Partida iniciada por ${firstPlayer.name}`, null, false, firstPlayer.id);
   render();
 }
 
 function takePriority(playerId) {
+  if (state.timerMinutes === null) return;
   const player = state.players.find((item) => item.id === playerId);
   if (!player || isPlayerEliminated(player)) return;
   finishPendingLifeChanges();
@@ -1484,7 +1610,7 @@ function takePriority(playerId) {
       ? `${previousPriority.name} encerrou a prioridade; ${player.name} pegou a prioridade`
       : `${player.name} pegou a prioridade`
     : `${player.name} encerrou a prioridade`;
-  addLogEntry('priority', message, before);
+  addLogEntry('priority', message, before, true, player.id);
   render();
 }
 
@@ -1509,6 +1635,7 @@ function openImagePicker(playerId) {
   renderColorOptions(player);
   imageResults.replaceChildren();
   searchStatus.textContent = 'Busque pelo nome de uma carta para usar sua arte como fundo.';
+  pauseTimerForPlayerModal(playerId, imageDialog);
   imageDialog.showModal();
 }
 
@@ -1646,7 +1773,8 @@ function selectImage(image, artist, cardName) {
 
 function setPlayerCount(playerCount) {
   while (state.players.length < playerCount) {
-    const player = makePlayer(state.players.length, state.startingLife, state.timerMinutes * 60);
+    const timerSeconds = state.timerMinutes === null ? null : state.timerMinutes * 60;
+    const player = makePlayer(state.players.length, state.startingLife, timerSeconds);
     state.players.push(player);
     state.tableOrder.push(player.id);
     savePlayerProfile(player);
@@ -1681,21 +1809,60 @@ function updateCustomTimeField() {
   customTimeField.hidden = selectedTime !== 'custom';
 }
 
+function updateCustomLifeField() {
+  const selectedLife = document.querySelector('input[name="new-game-life"]:checked')?.value;
+  customLifeField.hidden = selectedLife !== 'custom';
+}
+
 function openNewGameDialog() {
   setNewGamePlayerCount(state.players.length);
-  newGameStartingLife.value = String(state.startingLife);
-  const preset = [5, 10, 15, 30].includes(state.timerMinutes) ? String(state.timerMinutes) : 'custom';
+  const lifePreset = [20, 30, 40].includes(state.startingLife) ? String(state.startingLife) : 'custom';
+  document.querySelector(`input[name="new-game-life"][value="${lifePreset}"]`).checked = true;
+  if (lifePreset === 'custom') newGameCustomLife.value = String(state.startingLife);
+  const preset = state.timerMinutes === null
+    ? 'none'
+    : [5, 10, 15, 30].includes(state.timerMinutes) ? String(state.timerMinutes) : 'custom';
   document.querySelector(`input[name="new-game-time"][value="${preset}"]`).checked = true;
   if (preset === 'custom') newGameCustomTime.value = String(state.timerMinutes);
+  newGameUseFoolishToken.checked = state.useFoolishToken;
+  updateCustomLifeField();
   updateCustomTimeField();
   newGameDialog.showModal();
 }
 
 function selectedNewGameMinutes() {
   const selectedTime = document.querySelector('input[name="new-game-time"]:checked')?.value;
+  if (selectedTime === 'none') return null;
   if (selectedTime !== 'custom') return Number(selectedTime);
   const customMinutes = Math.round(Number(newGameCustomTime.value) || 1);
   return Math.max(1, Math.min(180, customMinutes));
+}
+
+function selectedNewGameLife() {
+  const selectedLife = document.querySelector('input[name="new-game-life"]:checked')?.value;
+  if (selectedLife !== 'custom') return Number(selectedLife) || 40;
+  const customLife = Math.round(Number(newGameCustomLife.value) || 1);
+  return Math.max(1, Math.min(999, customLife));
+}
+
+function restoreLogStep(entryId) {
+  finishPendingLifeChanges();
+  const entryIndex = state.gameLog.findIndex((entry) => entry.id === entryId);
+  const entry = state.gameLog[entryIndex];
+  if (entryIndex < 0 || !entry?.after) return;
+  const discardedEntries = state.gameLog.splice(entryIndex + 1);
+  state.redoLog = [...discardedEntries].reverse();
+  restoreGameSnapshot(entry.after);
+  lastTimerTick = Date.now();
+  saveState();
+  render();
+  renderGameLog();
+}
+
+function requestLogRestore(entry) {
+  pendingLogRestoreId = entry.id;
+  logRestoreMessage.textContent = `A partida voltará para “${entry.message}”. Todos os eventos posteriores serão desfeitos.`;
+  logRestoreDialog.showModal();
 }
 
 function renderGameLog() {
@@ -1704,8 +1871,24 @@ function renderGameLog() {
   [...state.gameLog].reverse().forEach((entry) => {
     const item = document.createElement('li');
     item.className = `game-log-entry log-${entry.type}`;
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'game-log-entry-action';
+    action.disabled = !entry.after;
+    action.setAttribute('aria-label', `${entry.message}. Voltar a este ponto da partida`);
     const marker = document.createElement('span');
     marker.className = 'game-log-marker';
+    const visual = entry.playerVisual
+      || state.players.find((player) => player.id === entry.playerId);
+    let thumb = null;
+    if (visual) {
+      item.classList.add('has-player-thumb');
+      thumb = document.createElement('span');
+      thumb.className = 'game-log-player-thumb';
+      thumb.style.backgroundColor = `rgb(${visual.color})`;
+      if (visual.image) thumb.style.backgroundImage = `url("${visual.image}")`;
+      thumb.setAttribute('aria-hidden', 'true');
+    }
     const content = document.createElement('div');
     const message = document.createElement('strong');
     message.textContent = entry.message;
@@ -1716,7 +1899,11 @@ function renderGameLog() {
       ? ''
       : date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     content.append(message, time);
-    item.append(marker, content);
+    action.append(marker);
+    if (thumb) action.append(thumb);
+    action.append(content);
+    action.addEventListener('click', () => requestLogRestore(entry));
+    item.append(action);
     gameLogList.append(item);
   });
 }
@@ -1783,16 +1970,17 @@ async function startNewGame() {
   stopAllSounds();
   stopVictoryCelebration();
   setPlayerCount(Number(newGamePlayerCount.value));
-  state.startingLife = Number(newGameStartingLife.value);
+  state.startingLife = selectedNewGameLife();
   state.timerMinutes = selectedNewGameMinutes();
-  newGameCustomTime.value = String(state.timerMinutes);
+  state.useFoolishToken = newGameUseFoolishToken.checked;
+  if (state.timerMinutes !== null) newGameCustomTime.value = String(state.timerMinutes);
   state.players.forEach((player) => {
     player.life = state.startingLife;
-    player.timerSeconds = state.timerMinutes * 60;
+    player.timerSeconds = state.timerMinutes === null ? null : state.timerMinutes * 60;
     player.commanderDamage = {};
     player.poisonCounters = 0;
     player.radiationCounters = 0;
-    player.foolishTokenAvailable = true;
+    player.foolishTokenAvailable = state.useFoolishToken;
   });
   state.turnPlayerId = state.players[0].id;
   state.roundStartPlayerId = state.players[0].id;
@@ -1836,6 +2024,16 @@ gameLogDialog.addEventListener('close', () => {
   isGameLogOpen = false;
   lastTimerTick = Date.now();
 });
+imageDialog.addEventListener('close', () => releaseTimerForModal(imageDialog));
+document.querySelector('.cancel-log-restore').addEventListener('click', () => logRestoreDialog.close());
+document.querySelector('#confirm-log-restore').addEventListener('click', () => {
+  const entryId = pendingLogRestoreId;
+  logRestoreDialog.close();
+  if (entryId) restoreLogStep(entryId);
+});
+logRestoreDialog.addEventListener('close', () => {
+  pendingLogRestoreId = null;
+});
 document.querySelector('#confirm-new-game').addEventListener('click', startNewGame);
 document.querySelector('.cancel-new-game').addEventListener('click', () => newGameDialog.close());
 document.querySelector('#new-game-remove-player').addEventListener('click', () => {
@@ -1847,9 +2045,16 @@ document.querySelector('#new-game-add-player').addEventListener('click', () => {
 document.querySelectorAll('input[name="new-game-time"]').forEach((input) => {
   input.addEventListener('change', updateCustomTimeField);
 });
+document.querySelectorAll('input[name="new-game-life"]').forEach((input) => {
+  input.addEventListener('change', updateCustomLifeField);
+});
 newGameCustomTime.addEventListener('focus', () => {
   document.querySelector('input[name="new-game-time"][value="custom"]').checked = true;
   updateCustomTimeField();
+});
+newGameCustomLife.addEventListener('focus', () => {
+  document.querySelector('input[name="new-game-life"][value="custom"]').checked = true;
+  updateCustomLifeField();
 });
 
 document.querySelector('#open-saved-players').addEventListener('click', () => {
@@ -1897,7 +2102,7 @@ document.querySelectorAll('.close-modal').forEach((button) => {
   button.addEventListener('click', () => button.closest('dialog').close());
 });
 
-[imageDialog, profilesDialog, gameLogDialog, newGameDialog].forEach((dialog) => {
+[imageDialog, profilesDialog, gameLogDialog, logRestoreDialog, newGameDialog].forEach((dialog) => {
   dialog.addEventListener('click', (event) => {
     if (event.target === dialog) dialog.close();
   });
