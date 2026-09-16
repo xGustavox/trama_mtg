@@ -57,6 +57,7 @@
           Pausado
         </strong>
         <span class="pass-label">Passar turno</span>
+        <span id="game-duration" class="game-duration" hidden></span>
       </button>
     </div>
 
@@ -71,7 +72,7 @@
       <div class="player-profile-fields">
         <button id="open-saved-players" class="open-profiles" type="button">
           <span class="open-profiles-icon" aria-hidden="true">♟</span>
-          <span><strong>Carregar jogador salvo</strong><small>Nome, imagem e cor</small></span>
+          <span><strong>Carregar jogador salvo</strong><small>Nome, imagem, cor e estilo</small></span>
           <span aria-hidden="true">›</span>
         </button>
         <label>
@@ -88,6 +89,15 @@
             <span aria-hidden="true">+</span>
             <small>Personalizada</small>
           </label>
+        </div>
+      </fieldset>
+      <fieldset class="life-style-settings">
+        <legend>Estilo dos pontos de vida</legend>
+        <div class="life-font-options" aria-label="Fonte dos pontos de vida">
+          <label class="font-standard"><input type="radio" name="player-life-font" value="standard"><span><b>40</b>Padrão</span></label>
+          <label class="font-minimal"><input type="radio" name="player-life-font" value="minimal"><span><b>40</b>Minimalista</span></label>
+          <label class="font-gothic"><input type="radio" name="player-life-font" value="gothic"><span><b>40</b>Gótica medieval</span></label>
+          <label class="font-futuristic"><input type="radio" name="player-life-font" value="futuristic"><span><b>40</b>Futurista</span></label>
         </div>
       </fieldset>
       <form id="image-search" class="search-form">
@@ -125,6 +135,7 @@
         </div>
         <button class="icon-button close-modal" type="button" aria-label="Fechar">×</button>
       </div>
+      <p class="game-log-description">Clique em um item para restaurar a partida naquele momento.</p>
       <p id="game-log-empty" class="game-log-empty">O log será iniciado quando a partida começar.</p>
       <ol id="game-log-list" class="game-log-list"></ol>
     </dialog>
@@ -163,6 +174,10 @@
             <button id="new-game-add-player" type="button" aria-label="Adicionar jogador">+</button>
           </div>
         </section>
+        <fieldset class="new-game-layout">
+          <legend>Posição dos jogadores na mesa</legend>
+          <div id="new-game-layout-options" class="table-layout-options"></div>
+        </fieldset>
         <fieldset class="new-game-life">
           <legend>Vida inicial de cada jogador</legend>
           <div class="time-options life-options">
@@ -213,15 +228,13 @@
         <button class="player-settings card-settings choose-image" type="button" aria-label="Configurar jogador" title="Configurar jogador">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" /></svg>
         </button>
-        <button class="foolish-token" type="button" aria-label="Usar Ficha da Burrice" title="Ficha da Burrice">
-          <img src="assets/ficha_burrice.png" alt="" />
-        </button>
         <button class="life-zone decrease" type="button" aria-label="Diminuir vida"><span aria-hidden="true">−</span></button>
         <button class="life-zone increase" type="button" aria-label="Aumentar vida"><span aria-hidden="true">+</span></button>
         <div class="player-content">
           <div class="player-name-wrap">
             <i class="first-player-mark" hidden>#1</i>
             <button class="player-name" type="button" aria-label="Editar nome do jogador"></button>
+            <span class="daily-wins" hidden><img src="assets/medalha.png" alt=""><strong>0</strong></span>
           </div>
           <div class="player-status-counters" aria-label="Contadores ativos"></div>
           <div class="life-total" aria-live="polite">40</div>
@@ -229,6 +242,9 @@
           <div class="art-credit"></div>
         </div>
         <div class="player-toolbar" aria-label="Ações do jogador">
+          <button class="foolish-token" type="button" aria-label="Usar Ficha da Burrice" title="Ficha da Burrice">
+            <img src="assets/ficha_burrice.png" alt="" />
+          </button>
           <div class="turn-toolbar-group">
             <div class="turn-timer">
               <span class="turn-indicator" aria-hidden="true"></span>

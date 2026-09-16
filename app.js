@@ -3,6 +3,7 @@ const MAX_PLAYERS = 8;
 const TURN_SECONDS = 30 * 60;
 const STORAGE_KEY = 'mesa-arcana-game-v1';
 const PROFILES_KEY = 'mesa-arcana-player-profiles-v1';
+const DAILY_WINS_KEY = 'trama-mtg-daily-wins-v1';
 const COLORS = [
   '4, 42, 43',
   '36, 22, 35',
@@ -20,6 +21,84 @@ const COLOR_CHOICES = [
   '0, 115, 62',
   '238, 230, 197',
 ];
+const LIFE_FONT_OPTIONS = ['standard', 'minimal', 'gothic', 'futuristic'];
+
+function greatestCommonDivisor(left, right) {
+  return right ? greatestCommonDivisor(right, left % right) : left;
+}
+
+function horizontalTable(rowSizes) {
+  const columns = rowSizes.reduce((total, rowSize) => total * rowSize / greatestCommonDivisor(total, rowSize), 1);
+  const slots = rowSizes.flatMap((rowSize, rowIndex) => {
+    const columnSpan = columns / rowSize;
+    return Array.from({ length: rowSize }, (_, index) => ({
+      column: (rowIndex === 0 ? index : rowSize - index - 1) * columnSpan + 1,
+      columnSpan,
+      row: rowIndex + 1,
+      rowSpan: 1,
+      rotation: rowIndex === 0 ? 180 : 0,
+    }));
+  });
+  return { columns, rows: rowSizes.length, slots };
+}
+
+function endpointTable(centerColumns, hasRightEndpoint, endpointWeight = 1) {
+  const columns = centerColumns * 2 + (hasRightEndpoint ? 2 : 1);
+  const columnWeights = [endpointWeight, ...Array(centerColumns * 2).fill(1)];
+  if (hasRightEndpoint) columnWeights.push(endpointWeight);
+  const slots = [{ column: 1, columnSpan: 1, row: 1, rowSpan: 2, rotation: 90 }];
+  for (let index = 0; index < centerColumns; index += 1) {
+    slots.push({ column: index * 2 + 2, columnSpan: 2, row: 1, rowSpan: 1, rotation: 180 });
+  }
+  if (hasRightEndpoint) {
+    slots.push({ column: columns, columnSpan: 1, row: 1, rowSpan: 2, rotation: 270 });
+  }
+  for (let index = centerColumns - 1; index >= 0; index -= 1) {
+    slots.push({ column: index * 2 + 2, columnSpan: 2, row: 2, rowSpan: 1, rotation: 0 });
+  }
+  return { columns, rows: 2, columnWeights, slots };
+}
+
+function sideBySideTable() {
+  return {
+    columns: 2,
+    rows: 1,
+    slots: [
+      { column: 1, columnSpan: 1, row: 1, rowSpan: 1, rotation: 90 },
+      { column: 2, columnSpan: 1, row: 1, rowSpan: 1, rotation: 270 },
+    ],
+  };
+}
+
+const TABLE_LAYOUTS = {
+  2: [
+    { id: 'together', label: 'Lado a lado', ...sideBySideTable() },
+  ],
+  3: [
+    { id: 'one-two', label: '1 + 2', ...horizontalTable([1, 2]) },
+    { id: 'end-two', label: 'Ponta + 2', ...endpointTable(1, false, 1.35) },
+  ],
+  4: [
+    { id: 'two-two', label: '2 + 2', ...horizontalTable([2, 2]) },
+    { id: 'ends-two', label: 'Pontas + 2', ...endpointTable(1, true, 1.5) },
+  ],
+  5: [
+    { id: 'two-three', label: '2 + 3', ...horizontalTable([2, 3]) },
+    { id: 'end-four', label: 'Ponta + 2 × 2', ...endpointTable(2, false, 1.5) },
+  ],
+  6: [
+    { id: 'three-three', label: '2 × 3', ...horizontalTable([3, 3]) },
+    { id: 'ends-four', label: 'Pontas + 2 × 2', ...endpointTable(2, true, 1.5) },
+  ],
+  7: [
+    { id: 'four-three', label: '4 + 3', ...horizontalTable([4, 3]) },
+    { id: 'end-six', label: 'Ponta + 2 × 3', ...endpointTable(3, false, 1.6) },
+  ],
+  8: [
+    { id: 'four-four', label: '2 × 4', ...horizontalTable([4, 4]) },
+    { id: 'ends-six', label: 'Pontas + 2 × 3', ...endpointTable(3, true, 1.5) },
+  ],
+};
 const PLAYER_COUNTER_TYPES = {
   poison: {
     label: 'Veneno',
@@ -67,6 +146,7 @@ const newGamePlayerCount = document.querySelector('#new-game-player-count');
 const newGameCustomTime = document.querySelector('#new-game-custom-time');
 const newGameCustomLife = document.querySelector('#new-game-custom-life');
 const newGameUseFoolishToken = document.querySelector('#new-game-use-foolish-token');
+const newGameLayoutOptions = document.querySelector('#new-game-layout-options');
 const customTimeField = document.querySelector('#custom-time-field');
 const customLifeField = document.querySelector('#custom-life-field');
 const profilesDialog = document.querySelector('#profiles-dialog');
@@ -76,6 +156,7 @@ const gameLogEmpty = document.querySelector('#game-log-empty');
 const logRestoreDialog = document.querySelector('#log-restore-dialog');
 const logRestoreMessage = document.querySelector('#log-restore-message');
 const playerSettingsName = document.querySelector('#player-settings-name');
+const playerLifeFontInputs = document.querySelectorAll('input[name="player-life-font"]');
 const colorOptions = document.querySelector('#color-options');
 const customColor = document.querySelector('#custom-color');
 const soundButton = document.querySelector('#toggle-sound');
@@ -101,9 +182,10 @@ let victoryConfettiTimer = null;
 let reverseTurnHoldTimer = null;
 let reverseTurnTriggered = false;
 let turnButtonRotation = 0;
-let turnButtonSide = 0;
+let turnButtonOrientation = 0;
 let pendingLogRestoreId = null;
 const timerBlockingModals = new Set();
+let dailyWinsResetTimer = null;
 
 function randomBytes(length) {
   const bytes = new Uint8Array(length);
@@ -274,7 +356,16 @@ function checkForWinner() {
   const nextWinnerId = survivors.length === 1 ? survivors[0].id : null;
   if (state.winnerPlayerId === nextWinnerId) return;
   const previousWinnerId = state.winnerPlayerId;
+  if (state.winnerAwardedPlayerId && state.winnerAwardedPlayerId !== nextWinnerId) {
+    adjustDailyWin(state.winnerAwardedPlayerId, -1);
+    state.winnerAwardedPlayerId = null;
+  }
   state.winnerPlayerId = nextWinnerId;
+  state.gameEndedAt = nextWinnerId ? Date.now() : null;
+  if (nextWinnerId && state.winnerAwardedPlayerId !== nextWinnerId) {
+    adjustDailyWin(nextWinnerId, 1);
+    state.winnerAwardedPlayerId = nextWinnerId;
+  }
   app.querySelectorAll('.player-card').forEach((card) => {
     card.classList.toggle('is-winner', card.dataset.playerId === nextWinnerId);
   });
@@ -308,6 +399,14 @@ function isPlayerEliminated(player) {
     || Object.values(player.commanderDamage || {}).some((damage) => damage >= 21);
 }
 
+function updateCommanderAvatar(chip, avatar, commander) {
+  const eliminated = isPlayerEliminated(commander);
+  chip.classList.toggle('is-commander-eliminated', eliminated);
+  avatar.style.background = commander.image
+    ? `url("${commander.image}") center / cover`
+    : eliminated ? '#1a1a1d' : `rgb(${commander.color})`;
+}
+
 function pauseTimerForPlayerModal(playerId, modal) {
   if (state.timerMinutes === null || !state.gameStarted) return;
   if (playerId !== (state.priorityPlayerId || state.turnPlayerId)) return;
@@ -336,7 +435,22 @@ function makePlayer(index, life = 40, timerSeconds = TURN_SECONDS) {
     image: null,
     artist: null,
     cardName: null,
+    lifeFont: 'standard',
   };
+}
+
+function tableLayoutFor(playerCount, layoutId) {
+  const layouts = TABLE_LAYOUTS[playerCount] || [];
+  return layouts.find((layout) => layout.id === layoutId) || layouts[0];
+}
+
+function tableSlotForPlayer(playerId) {
+  const layout = tableLayoutFor(state.players.length, state.tableLayout);
+  return layout.slots[tableIndexForPlayer(playerId)] || layout.slots[0];
+}
+
+function playerRotation(playerId) {
+  return tableSlotForPlayer(playerId)?.rotation || 0;
 }
 
 function loadState() {
@@ -354,10 +468,12 @@ function loadState() {
         poisonCounters: Number.isFinite(player.poisonCounters) ? Math.max(0, player.poisonCounters) : 0,
         radiationCounters: Number.isFinite(player.radiationCounters) ? Math.max(0, player.radiationCounters) : 0,
         foolishTokenAvailable: player.foolishTokenAvailable !== false,
+        lifeFont: LIFE_FONT_OPTIONS.includes(player.lifeFont) ? player.lifeFont : 'standard',
         timerSeconds: timerMinutes === null
           ? null
           : Number.isFinite(player.timerSeconds) ? player.timerSeconds : timerMinutes * 60,
       }));
+      players.forEach((player) => delete player.lifeEffect);
       const priorityPlayerId = players.some((player) => player.id === saved.priorityPlayerId && !isPlayerEliminated(player))
         ? saved.priorityPlayerId
         : null;
@@ -374,6 +490,11 @@ function loadState() {
       const winnerPlayerId = players.some((player) => player.id === saved.winnerPlayerId)
         ? saved.winnerPlayerId
         : null;
+      const winnerAwardedPlayerId = winnerPlayerId && saved.winnerAwardedPlayerId === winnerPlayerId
+        ? winnerPlayerId
+        : null;
+      const gameStartedAt = Number.isFinite(saved.gameStartedAt) ? saved.gameStartedAt : null;
+      const gameEndedAt = winnerPlayerId && Number.isFinite(saved.gameEndedAt) ? saved.gameEndedAt : null;
       const savedTableOrder = Array.isArray(saved.tableOrder) ? saved.tableOrder : [];
       const tableOrder = savedTableOrder.length === players.length
         && new Set(savedTableOrder).size === players.length
@@ -386,7 +507,8 @@ function loadState() {
       const gameLog = Array.isArray(saved.gameLog) ? saved.gameLog : [];
       const redoLog = Array.isArray(saved.redoLog) ? saved.redoLog : [];
       const savedPendingLifeChanges = Array.isArray(saved.pendingLifeChanges) ? saved.pendingLifeChanges : [];
-      return { ...saved, players, tableOrder, priorityPlayerId: timerMinutes === null ? null : priorityPlayerId, turnPlayerId, roundStartPlayerId, turnNumber, gameStarted, gamePaused, soundMuted, useFoolishToken, winnerPlayerId, timerMinutes, gameLog, redoLog, savedPendingLifeChanges };
+      const tableLayout = tableLayoutFor(players.length, saved.tableLayout).id;
+      return { ...saved, players, tableOrder, priorityPlayerId: timerMinutes === null ? null : priorityPlayerId, turnPlayerId, roundStartPlayerId, turnNumber, gameStarted, gamePaused, soundMuted, useFoolishToken, winnerPlayerId, winnerAwardedPlayerId, gameStartedAt, gameEndedAt, timerMinutes, tableLayout, gameLog, redoLog, savedPendingLifeChanges };
     }
   } catch (_) {
     // A partida simplesmente recomeça se os dados locais estiverem inválidos.
@@ -395,6 +517,7 @@ function loadState() {
   return {
     startingLife: 40,
     timerMinutes: 30,
+    tableLayout: tableLayoutFor(4).id,
     useFoolishToken: true,
     players,
     tableOrder: players.map((player) => player.id),
@@ -406,6 +529,9 @@ function loadState() {
     gamePaused: false,
     soundMuted: false,
     winnerPlayerId: null,
+    winnerAwardedPlayerId: null,
+    gameStartedAt: null,
+    gameEndedAt: null,
     gameLog: [],
     redoLog: [],
     savedPendingLifeChanges: [],
@@ -415,14 +541,31 @@ function loadState() {
 function loadProfiles() {
   try {
     const saved = JSON.parse(localStorage.getItem(PROFILES_KEY));
-    return Array.isArray(saved) ? saved : [];
+    return Array.isArray(saved) ? saved.map((profile) => {
+      const normalized = { ...profile };
+      delete normalized.lifeEffect;
+      return normalized;
+    }) : [];
   } catch (_) {
     return [];
   }
 }
 
+function localDateKey(date = new Date()) {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+}
+
+function loadDailyWins() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DAILY_WINS_KEY));
+    if (saved?.date === localDateKey() && saved.wins && typeof saved.wins === 'object') return saved;
+  } catch (_) {}
+  return { date: localDateKey(), wins: {} };
+}
+
 let profiles = loadProfiles();
 let state = loadState();
+let dailyWins = loadDailyWins();
 state.savedPendingLifeChanges.forEach(([playerId, pending]) => {
   if (state.players.some((player) => player.id === playerId) && Number.isFinite(pending?.delta) && pending.before) {
     pendingLifeChanges.set(playerId, pending);
@@ -434,6 +577,48 @@ function saveProfiles() {
   localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
 }
 
+function saveDailyWins() {
+  localStorage.setItem(DAILY_WINS_KEY, JSON.stringify(dailyWins));
+}
+
+function dailyWinCount(player) {
+  return Math.max(0, Number(dailyWins.wins[player.profileId]) || 0);
+}
+
+function updateDailyWinsBadge(badge, player) {
+  const wins = dailyWinCount(player);
+  badge.hidden = wins === 0;
+  badge.querySelector('strong').textContent = String(wins);
+  badge.setAttribute('aria-label', `${wins} ${wins === 1 ? 'vitória' : 'vitórias'} hoje`);
+}
+
+function adjustDailyWin(playerId, amount) {
+  const player = state.players.find((item) => item.id === playerId);
+  if (!player?.profileId) return;
+  const next = Math.max(0, dailyWinCount(player) + amount);
+  if (next) dailyWins.wins[player.profileId] = next;
+  else delete dailyWins.wins[player.profileId];
+  saveDailyWins();
+  const badge = app.querySelector(`[data-player-id="${player.id}"] .daily-wins`);
+  if (badge) updateDailyWinsBadge(badge, player);
+}
+
+function scheduleDailyWinsReset() {
+  clearTimeout(dailyWinsResetTimer);
+  const now = new Date();
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  dailyWinsResetTimer = setTimeout(() => {
+    dailyWins = { date: localDateKey(), wins: {} };
+    saveDailyWins();
+    app.querySelectorAll('.player-card').forEach((card) => {
+      const player = state.players.find((item) => item.id === card.dataset.playerId);
+      const badge = card.querySelector('.daily-wins');
+      if (player && badge) updateDailyWinsBadge(badge, player);
+    });
+    scheduleDailyWinsReset();
+  }, midnight.getTime() - now.getTime() + 50);
+}
+
 function savePlayerProfile(player) {
   const profile = {
     id: player.profileId,
@@ -442,6 +627,7 @@ function savePlayerProfile(player) {
     artist: player.artist,
     cardName: player.cardName,
     color: player.color,
+    lifeFont: player.lifeFont,
   };
   const index = profiles.findIndex((item) => item.id === profile.id);
   if (index >= 0) profiles[index] = profile;
@@ -451,7 +637,6 @@ function savePlayerProfile(player) {
 
 state.players.forEach((player) => {
   if (!player.profileId) player.profileId = createId();
-  if (!profiles.some((profile) => profile.id === player.profileId)) savePlayerProfile(player);
 });
 saveState();
 
@@ -460,6 +645,7 @@ function saveState() {
     startingLife: state.startingLife,
     timerMinutes: state.timerMinutes,
     useFoolishToken: state.useFoolishToken,
+    tableLayout: state.tableLayout,
     priorityPlayerId: state.priorityPlayerId,
     turnPlayerId: state.turnPlayerId,
     roundStartPlayerId: state.roundStartPlayerId,
@@ -468,6 +654,9 @@ function saveState() {
     gamePaused: state.gamePaused,
     soundMuted: state.soundMuted,
     winnerPlayerId: state.winnerPlayerId,
+    winnerAwardedPlayerId: state.winnerAwardedPlayerId,
+    gameStartedAt: state.gameStartedAt,
+    gameEndedAt: state.gameEndedAt,
     tableOrder: state.tableOrder,
     players: state.players,
     gameLog: state.gameLog,
@@ -480,6 +669,29 @@ function formatTime(totalSeconds) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function totalMatchSeconds() {
+  if (state.timerMinutes !== null) {
+    const initialPlayerSeconds = state.timerMinutes * 60;
+    return state.players.reduce((total, player) => {
+      const remainingSeconds = Number.isFinite(player.timerSeconds)
+        ? player.timerSeconds
+        : initialPlayerSeconds;
+      return total + Math.max(0, initialPlayerSeconds - remainingSeconds);
+    }, 0);
+  }
+  if (!Number.isFinite(state.gameStartedAt) || !Number.isFinite(state.gameEndedAt)) return null;
+  return Math.max(0, Math.floor((state.gameEndedAt - state.gameStartedAt) / 1000));
+}
+
+function formatMatchDuration(totalSeconds) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor(totalSeconds % 3600 / 60);
+  const seconds = totalSeconds % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function gameSnapshot() {
@@ -499,12 +711,16 @@ function gameSnapshot() {
     turnNumber: state.turnNumber,
     gamePaused: state.gamePaused,
     winnerPlayerId: state.winnerPlayerId,
+    winnerAwardedPlayerId: state.winnerAwardedPlayerId,
+    gameStartedAt: state.gameStartedAt,
+    gameEndedAt: state.gameEndedAt,
     tableOrder: [...state.tableOrder],
   };
 }
 
 function restoreGameSnapshot(snapshot) {
   const hadWinner = Boolean(state.winnerPlayerId);
+  const previousAwardedPlayerId = state.winnerAwardedPlayerId;
   snapshot.players.forEach((savedPlayer) => {
     const player = state.players.find((item) => item.id === savedPlayer.id);
     if (!player) return;
@@ -523,6 +739,13 @@ function restoreGameSnapshot(snapshot) {
   state.turnNumber = snapshot.turnNumber;
   state.gamePaused = snapshot.gamePaused;
   state.winnerPlayerId = snapshot.winnerPlayerId || null;
+  state.winnerAwardedPlayerId = snapshot.winnerAwardedPlayerId || null;
+  state.gameStartedAt = Number.isFinite(snapshot.gameStartedAt) ? snapshot.gameStartedAt : state.gameStartedAt;
+  state.gameEndedAt = Number.isFinite(snapshot.gameEndedAt) ? snapshot.gameEndedAt : null;
+  if (previousAwardedPlayerId !== state.winnerAwardedPlayerId) {
+    if (previousAwardedPlayerId) adjustDailyWin(previousAwardedPlayerId, -1);
+    if (state.winnerAwardedPlayerId) adjustDailyWin(state.winnerAwardedPlayerId, 1);
+  }
   if (Array.isArray(snapshot.tableOrder)
     && snapshot.tableOrder.length === state.players.length
     && snapshot.tableOrder.every((id) => state.players.some((player) => player.id === id))) {
@@ -571,6 +794,7 @@ function updateControls() {
   const passLabel = passTurnButton.querySelector('.pass-label');
   const turnStatus = passTurnButton.querySelector('.turn-status');
   const pausedStatus = passTurnButton.querySelector('.paused-status');
+  const gameDuration = document.querySelector('#game-duration');
   const priorityActive = state.timerMinutes !== null && Boolean(state.priorityPlayerId);
   const gameWon = state.gameStarted && Boolean(state.winnerPlayerId);
   turnStatus.hidden = gameWon || isReordering || !state.gameStarted || state.gamePaused || priorityActive;
@@ -588,6 +812,9 @@ function updateControls() {
   passTurnButton.classList.toggle('game-paused', state.gameStarted && state.gamePaused);
   passTurnButton.classList.toggle('priority-active', priorityActive);
   passTurnButton.classList.toggle('game-over', gameWon);
+  gameDuration.hidden = !gameWon;
+  const totalSeconds = gameWon ? totalMatchSeconds() : null;
+  gameDuration.textContent = Number.isFinite(totalSeconds) ? formatMatchDuration(totalSeconds) : '';
   passTurnButton.classList.toggle('confirm-reorder', isReordering);
   passTurnButton.classList.toggle(
     'ready-to-start',
@@ -595,13 +822,10 @@ function updateControls() {
   );
   passTurnButton.disabled = isChoosingStarter || gameWon;
   const orientedPlayerId = state.winnerPlayerId || state.priorityPlayerId || state.turnPlayerId;
-  const turnPlayerTableIndex = tableIndexForPlayer(orientedPlayerId);
-  const nextTurnButtonSide = !isReordering && turnPlayerTableIndex < opponentCount(state.players.length)
-    ? 1
-    : 0;
-  if (!isReordering && nextTurnButtonSide !== turnButtonSide) {
-    turnButtonRotation += 180;
-    turnButtonSide = nextTurnButtonSide;
+  const nextTurnButtonOrientation = isReordering ? turnButtonOrientation : playerRotation(orientedPlayerId);
+  if (!isReordering && nextTurnButtonOrientation !== turnButtonOrientation) {
+    turnButtonRotation += (nextTurnButtonOrientation - turnButtonOrientation + 360) % 360;
+    turnButtonOrientation = nextTurnButtonOrientation;
   }
   turnControls.style.setProperty('--turn-button-rotation', `${turnButtonRotation}deg`);
   passTurnButton.setAttribute('aria-label', isReordering
@@ -625,10 +849,6 @@ function updateControls() {
   soundLabel.textContent = state.soundMuted ? 'Ativar som' : 'Mutar';
 }
 
-function opponentCount(playerCount) {
-  return { 2: 1, 3: 1, 4: 2, 5: 2, 6: 3, 7: 4, 8: 4 }[playerCount];
-}
-
 function discardPendingLifeChanges() {
   lifeChangeTimers.forEach(clearTimeout);
   lifeChangeTimers.clear();
@@ -650,6 +870,7 @@ function finishLifeChange(playerId) {
   if (!player) return;
   const action = pending.delta > 0 ? 'ganhou' : 'perdeu';
   addLogEntry('life', `${player.name} ${action} ${Math.abs(pending.delta)} de vida`, pending.before, true, player.id);
+  logPlayerEliminationChange(player, Boolean(pending.wasEliminated), pending.before);
 }
 
 function finishPendingLifeChanges() {
@@ -696,12 +917,35 @@ function moveNamesClearOfTurnButton() {
     const closestY = Math.max(nameRect.top, Math.min(buttonCenterY, nameRect.bottom));
     const overlapsButton = Math.hypot(closestX - buttonCenterX, closestY - buttonCenterY) < buttonRadius + 4;
     if (!overlapsButton) return;
-    const clearance = card.classList.contains('is-opponent')
-      ? nameRect.bottom - buttonRect.top + 8
-      : buttonRect.bottom - nameRect.top + 8;
+    let clearance;
+    if (card.classList.contains('is-side-left')) {
+      clearance = nameRect.right - buttonRect.left + 8;
+    } else if (card.classList.contains('is-side-right')) {
+      clearance = buttonRect.right - nameRect.left + 8;
+    } else {
+      clearance = card.classList.contains('is-opponent')
+        ? nameRect.bottom - buttonRect.top + 8
+        : buttonRect.bottom - nameRect.top + 8;
+    }
     name.style.top = `${parseFloat(getComputedStyle(name).top) + clearance}px`;
     card.classList.add('name-near-center');
   });
+}
+
+function positionTurnControls(tableLayout) {
+  const appRect = app.getBoundingClientRect();
+  const cards = [...app.querySelectorAll('.player-card')];
+  let left = appRect.left + appRect.width / 2;
+  const top = appRect.top + appRect.height / 2;
+  if (tableLayout.id === 'end-two') {
+    left = cards[0].getBoundingClientRect().right;
+  } else if (tableLayout.id === 'end-four') {
+    left = cards[1].getBoundingClientRect().right;
+  } else if (tableLayout.id === 'end-six') {
+    left = cards[1].getBoundingClientRect().right;
+  }
+  turnControls.style.left = `${left}px`;
+  turnControls.style.top = `${top}px`;
 }
 
 function bindPlayerNameButton(button, player, fallbackName) {
@@ -753,14 +997,27 @@ function render() {
     if (!modal.isConnected) releaseTimerForModal(modal);
   });
   app.className = `count-${state.players.length}${isReordering ? ' reorder-mode' : ''}`;
+  const tableLayout = tableLayoutFor(state.players.length, state.tableLayout);
+  app.style.gridTemplateRows = `repeat(${tableLayout.rows}, minmax(0, 1fr))`;
+  app.style.gridTemplateColumns = tableLayout.columnWeights
+    ? tableLayout.columnWeights.map((weight) => `minmax(0, ${weight}fr)`).join(' ')
+    : `repeat(${tableLayout.columns}, minmax(0, 1fr))`;
 
   playersInTableOrder().forEach((player, index) => {
     const card = template.content.firstElementChild.cloneNode(true);
     card.dataset.playerId = player.id;
     card.style.setProperty('--player-color', player.color || COLORS[index]);
-    if (index < opponentCount(state.players.length)) {
+    card.classList.add(`life-font-${player.lifeFont}`);
+    const slot = tableLayout.slots[index];
+    card.style.setProperty('--player-rotation', `${slot.rotation}deg`);
+    card.style.gridRow = `${slot.row} / span ${slot.rowSpan}`;
+    card.style.gridColumn = `${slot.column} / span ${slot.columnSpan}`;
+    if (slot.rotation === 180) {
       card.classList.add('is-opponent');
-      card.style.setProperty('--player-rotation', '180deg');
+    } else if (slot.rotation === 90) {
+      card.classList.add('is-side-left');
+    } else if (slot.rotation === 270) {
+      card.classList.add('is-side-right');
     }
     if (player.id === state.turnPlayerId && !state.priorityPlayerId) card.classList.add('is-turn');
     if (isChoosingStarter && player.id === state.turnPlayerId) card.classList.add('is-lottery');
@@ -783,6 +1040,8 @@ function render() {
     nameButton.disabled = isReordering;
     bindPlayerNameButton(nameButton, player, `Jogador ${index + 1}`);
     card.querySelector('.first-player-mark').hidden = player.id !== state.roundStartPlayerId;
+    const winsBadge = card.querySelector('.daily-wins');
+    updateDailyWinsBadge(winsBadge, player);
 
     card.querySelector('.life-total').textContent = player.life;
     card.querySelector('.turn-toolbar-group').hidden = state.timerMinutes === null;
@@ -802,6 +1061,7 @@ function render() {
     foolishToken.disabled = isReordering;
     foolishToken.addEventListener('click', () => openFoolishTokenConfirmation(player.id, card));
     const toolbar = card.querySelector('.player-toolbar');
+    card.querySelector('.player-content').append(toolbar);
     if (isReordering) {
       toolbar.replaceChildren();
       const handle = document.createElement('button');
@@ -848,9 +1108,7 @@ function render() {
         button.setAttribute('aria-label', `${damage} de dano do comandante de ${commander.name}`);
         const avatar = document.createElement('span');
         avatar.className = 'counter-avatar';
-        avatar.style.background = commander.image
-          ? `url("${commander.image}") center / cover`
-          : `rgb(${commander.color})`;
+        updateCommanderAvatar(button, avatar, commander);
         const total = document.createElement('strong');
         total.textContent = damage;
         button.append(avatar, total);
@@ -870,10 +1128,10 @@ function render() {
       ? 'settings-left'
       : 'settings-right';
     settingsButton.classList.add(cornerClass);
-    foolishToken.classList.add(cornerClass);
   });
 
   updateControls();
+  positionTurnControls(tableLayout);
   moveNamesClearOfTurnButton();
 }
 
@@ -970,8 +1228,11 @@ function changeLife(playerId, amount) {
   const player = state.players.find((item) => item.id === playerId);
   if (!player) return;
   const wasEliminated = isPlayerEliminated(player);
-  const beforeChange = gameSnapshot();
-  const pending = pendingLifeChanges.get(playerId) || { delta: 0, before: gameSnapshot() };
+  const pending = pendingLifeChanges.get(playerId) || {
+    delta: 0,
+    before: gameSnapshot(),
+    wasEliminated,
+  };
   const nextLife = Math.max(0, player.life + amount);
   const appliedChange = nextLife - player.life;
   if (appliedChange === 0) return;
@@ -986,6 +1247,7 @@ function changeLife(playerId, amount) {
   const change = card.querySelector('.life-change');
   total.textContent = player.life;
   card.classList.toggle('is-eliminated', isPlayerEliminated(player));
+  syncGameCardStates();
   if (priorityEnded) {
     card.classList.remove('has-priority', 'is-timing');
     const turnPlayer = state.players.find((item) => item.id === state.turnPlayerId);
@@ -993,7 +1255,6 @@ function changeLife(playerId, amount) {
       app.querySelector(`[data-player-id="${turnPlayer.id}"]`)?.classList.add('is-turn', 'is-timing');
     }
   }
-  logPlayerEliminationChange(player, wasEliminated, beforeChange);
   total.classList.remove('bump-up', 'bump-down');
   void total.offsetWidth;
   total.classList.add(appliedChange > 0 ? 'bump-up' : 'bump-down');
@@ -1181,13 +1442,23 @@ function openCounterTypePopover(playerId, card, anchor) {
   popover.closePopover = closePopover;
   const cardRect = card.getBoundingClientRect();
   const anchorRect = anchor.getBoundingClientRect();
-  const center = anchorRect.left + anchorRect.width / 2 - cardRect.left;
-  const popoverEdge = cardRect.width <= 260 ? 37 : 72;
-  popover.style.left = `${Math.max(popoverEdge, Math.min(cardRect.width - popoverEdge, center))}px`;
-  if (card.classList.contains('is-opponent')) {
+  const rotation = playerRotation(playerId);
+  popover.style.setProperty('--popover-rotation', `${rotation}deg`);
+  if (rotation === 90 || rotation === 270) {
+    const center = anchorRect.top + anchorRect.height / 2 - cardRect.top;
+    popover.style.top = `${Math.max(72, Math.min(cardRect.height - 72, center))}px`;
+    if (rotation === 90) popover.style.left = `${anchorRect.right - cardRect.left + 8}px`;
+    else popover.style.right = `${cardRect.right - anchorRect.left + 8}px`;
+    popover.classList.add('is-side-popover');
+  } else {
+    const center = anchorRect.left + anchorRect.width / 2 - cardRect.left;
+    const popoverEdge = cardRect.width <= 260 ? 37 : 72;
+    popover.style.left = `${Math.max(popoverEdge, Math.min(cardRect.width - popoverEdge, center))}px`;
+  }
+  if (rotation === 180) {
     popover.style.top = `${anchorRect.bottom - cardRect.top + 8}px`;
     popover.classList.add('is-opponent-popover');
-  } else {
+  } else if (rotation === 0) {
     popover.style.bottom = `${cardRect.bottom - anchorRect.top + 8}px`;
   }
   Object.entries(PLAYER_COUNTER_TYPES).forEach(([type, counter]) => {
@@ -1286,9 +1557,11 @@ function syncGameCardStates() {
     );
     card.querySelectorAll('.commander-chip').forEach((chip) => {
       const damage = player.commanderDamage[chip.dataset.commanderId] || 0;
+      const commander = state.players.find((item) => item.id === chip.dataset.commanderId);
       chip.querySelector('strong').textContent = damage;
       chip.classList.toggle('has-damage', damage > 0);
       chip.classList.toggle('is-lethal', damage > 20);
+      if (commander) updateCommanderAvatar(chip, chip.querySelector('.counter-avatar'), commander);
     });
     card.querySelectorAll('.status-counter-chip').forEach((chip) => {
       const counter = PLAYER_COUNTER_TYPES[chip.dataset.counterType];
@@ -1303,6 +1576,7 @@ function openCommanderDamage(targetId, sourceId, card) {
   const source = state.players.find((player) => player.id === sourceId);
   if (!target || !source || card.querySelector('.card-counter-panel')) return;
   const damageOnOpen = target.commanderDamage[sourceId] || 0;
+  const wasEliminatedOnOpen = isPlayerEliminated(target);
   const snapshotOnOpen = gameSnapshot();
   const { panel, background, closeButton, content } = createCardCounterPanel(
     card,
@@ -1320,7 +1594,6 @@ function openCommanderDamage(targetId, sourceId, card) {
 
   const control = createCounterControl('Dano de comandante', damageOnOpen, (amount, output) => {
     const wasEliminated = isPlayerEliminated(target);
-    const beforeChange = gameSnapshot();
     const current = target.commanderDamage[sourceId] || 0;
     const next = Math.max(0, current + amount);
     const appliedDamage = next - current;
@@ -1332,7 +1605,6 @@ function openCommanderDamage(targetId, sourceId, card) {
     if (isPlayerEliminated(target) && state.priorityPlayerId === target.id) state.priorityPlayerId = null;
     output.textContent = next;
     syncGameCardStates();
-    logPlayerEliminationChange(target, wasEliminated, beforeChange);
     saveState();
   });
   control.classList.add('single-player-counter');
@@ -1356,6 +1628,7 @@ function openCommanderDamage(targetId, sourceId, card) {
         true,
         target.id,
       );
+      logPlayerEliminationChange(target, wasEliminatedOnOpen, snapshotOnOpen);
     }
     syncGameCardStates();
     if (damageChange > 0) {
@@ -1376,6 +1649,7 @@ function openPlayerCounter(playerId, type, card) {
   if (!player || !counter || card.querySelector('.card-counter-panel')) return;
   card.querySelector('.counter-type-popover')?.remove();
   const valueOnOpen = player[counter.property];
+  const wasEliminatedOnOpen = isPlayerEliminated(player);
   const snapshotOnOpen = gameSnapshot();
   const { panel, background, closeButton, content } = createCardCounterPanel(
     card,
@@ -1399,7 +1673,6 @@ function openPlayerCounter(playerId, type, card) {
 
   const control = createCounterControl(counter.label, valueOnOpen, (amount, output) => {
     const wasEliminated = isPlayerEliminated(player);
-    const beforeChange = gameSnapshot();
     const next = Math.max(0, player[counter.property] + amount);
     if (next === player[counter.property]) return;
     player[counter.property] = next;
@@ -1408,7 +1681,6 @@ function openPlayerCounter(playerId, type, card) {
     if (isPlayerEliminated(player) && state.priorityPlayerId === player.id) state.priorityPlayerId = null;
     output.textContent = next;
     syncGameCardStates();
-    logPlayerEliminationChange(player, wasEliminated, beforeChange);
     saveState();
   });
   control.classList.add('single-player-counter');
@@ -1431,6 +1703,7 @@ function openPlayerCounter(playerId, type, card) {
         true,
         player.id,
       );
+      logPlayerEliminationChange(player, wasEliminatedOnOpen, snapshotOnOpen);
     }
     syncStatusCounterChips(player, card);
     syncGameCardStates();
@@ -1453,8 +1726,10 @@ function animateCommanderAttack(sourceId, targetId) {
   const startY = sourceRect.top + sourceRect.height / 2;
   const travelX = targetRect.left + targetRect.width / 2 - startX;
   const travelY = targetRect.top + targetRect.height / 2 - startY;
-  const sourceRotation = sourceCard.classList.contains('is-opponent') ? 180 : 0;
-  const floatY = sourceRotation === 180 ? 60 : -60;
+  const sourceRotation = playerRotation(sourceId);
+  const angle = sourceRotation * Math.PI / 180;
+  const floatX = Math.sin(angle) * 60;
+  const floatY = -Math.cos(angle) * 60;
   const attackCard = document.createElement('div');
   attackCard.className = 'commander-attack-card';
   attackCard.style.left = `${startX}px`;
@@ -1467,12 +1742,12 @@ function animateCommanderAttack(sourceId, targetId) {
   );
   const attack = attackCard.animate([
     { opacity: 0, transform: pose(0, 0, .4), offset: 0 },
-    { opacity: 1, transform: pose(0, floatY * .45, .9, sourceRotation - 2), offset: .14 },
-    { opacity: 1, transform: pose(0, floatY, 1, sourceRotation + 2), offset: .31 },
+    { opacity: 1, transform: pose(floatX * .45, floatY * .45, .9, sourceRotation - 2), offset: .14 },
+    { opacity: 1, transform: pose(floatX, floatY, 1, sourceRotation + 2), offset: .31 },
     { opacity: 1, transform: pose(travelX * .82, travelY * .82, 1.02, sourceRotation + 4), offset: .53 },
     { opacity: 1, transform: pose(travelX, travelY, 1.1, sourceRotation - 2), offset: .62 },
     { opacity: 1, transform: pose(travelX * .88, travelY * .88, .96, sourceRotation + 2), offset: .7 },
-    { opacity: .95, transform: pose(0, floatY * .6, .9, sourceRotation), offset: .91 },
+    { opacity: .95, transform: pose(floatX * .6, floatY * .6, .9, sourceRotation), offset: .91 },
     { opacity: 0, transform: pose(0, 0, .55, sourceRotation), offset: 1 },
   ], { duration: 1900, easing: 'cubic-bezier(.3,.75,.25,1)' });
 
@@ -1582,9 +1857,12 @@ function startOrPassTurn() {
     passTurn();
     return;
   }
+  requestFullscreenIfAvailable();
   const firstPlayer = state.players.find((player) => player.id === state.turnPlayerId);
   state.gameStarted = true;
   state.gamePaused = false;
+  state.gameStartedAt = Date.now();
+  state.gameEndedAt = null;
   lastTimerTick = Date.now();
   addLogEntry(
     'turn',
@@ -1626,10 +1904,11 @@ function toggleGamePause() {
 function openImagePicker(playerId) {
   imagePlayerId = playerId;
   const player = state.players.find((item) => item.id === playerId);
-  const playerIndex = tableIndexForPlayer(playerId);
-  imageDialog.classList.toggle('player-oriented-opponent', playerIndex < opponentCount(state.players.length));
+  imageDialog.classList.add('player-oriented');
+  imageDialog.style.setProperty('--modal-rotation', `${playerRotation(playerId)}deg`);
   document.querySelector('#remove-current-image').hidden = !player?.image;
   playerSettingsName.value = player.name;
+  document.querySelector(`input[name="player-life-font"][value="${player.lifeFont}"]`).checked = true;
   renderColorOptions(player);
   imageResults.replaceChildren();
   searchStatus.textContent = 'Busque pelo nome de uma carta para usar sua arte como fundo.';
@@ -1678,7 +1957,16 @@ function renderSavedPlayers() {
   const grid = document.querySelector('#saved-player-grid');
   const player = state.players.find((item) => item.id === imagePlayerId);
   grid.replaceChildren();
+  if (profiles.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'saved-player-empty';
+    empty.textContent = 'Nenhum jogador salvo neste navegador.';
+    grid.append(empty);
+    return;
+  }
   profiles.forEach((profile) => {
+    const item = document.createElement('div');
+    item.className = 'saved-player-item';
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'saved-player-card';
@@ -1691,8 +1979,53 @@ function renderSavedPlayers() {
     const name = document.createElement('strong');
     name.textContent = profile.name;
     button.append(background, name);
-    button.addEventListener('click', () => applySavedPlayer(profile));
-    grid.append(button);
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'delete-saved-player';
+    removeButton.setAttribute('aria-label', `Excluir configuração de ${profile.name}`);
+    removeButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-9 0 1 14h10l1-14M10 11v6m4-6v6" /></svg>';
+    let holdTimer = null;
+    let holdTriggered = false;
+    let pointerStart = null;
+    const cancelHold = () => {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      pointerStart = null;
+    };
+    button.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      holdTriggered = false;
+      pointerStart = { x: event.clientX, y: event.clientY };
+      holdTimer = setTimeout(() => {
+        grid.querySelectorAll('.saved-player-item.delete-ready').forEach((savedItem) => savedItem.classList.remove('delete-ready'));
+        item.classList.add('delete-ready');
+        holdTriggered = true;
+        navigator.vibrate?.(35);
+      }, 650);
+    });
+    button.addEventListener('pointermove', (event) => {
+      if (!pointerStart || Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) <= 10) return;
+      cancelHold();
+    });
+    button.addEventListener('pointerup', cancelHold);
+    button.addEventListener('pointercancel', cancelHold);
+    button.addEventListener('contextmenu', (event) => event.preventDefault());
+    button.addEventListener('click', (event) => {
+      if (holdTriggered || item.classList.contains('delete-ready')) {
+        event.preventDefault();
+        holdTriggered = false;
+        return;
+      }
+      applySavedPlayer(profile);
+    });
+    removeButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      profiles = profiles.filter((savedProfile) => savedProfile.id !== profile.id);
+      saveProfiles();
+      renderSavedPlayers();
+    });
+    item.append(button, removeButton);
+    grid.append(item);
   });
 }
 
@@ -1706,8 +2039,10 @@ function applySavedPlayer(profile) {
     artist: profile.artist,
     cardName: profile.cardName,
     color: profile.color || player.color,
+    lifeFont: LIFE_FONT_OPTIONS.includes(profile.lifeFont) ? profile.lifeFont : 'standard',
   });
   playerSettingsName.value = player.name;
+  document.querySelector(`input[name="player-life-font"][value="${player.lifeFont}"]`).checked = true;
   document.querySelector('#remove-current-image').hidden = !player.image;
   renderColorOptions(player);
   saveState();
@@ -1775,7 +2110,6 @@ function setPlayerCount(playerCount) {
     const player = makePlayer(state.players.length, state.startingLife, timerSeconds);
     state.players.push(player);
     state.tableOrder.push(player.id);
-    savePlayerProfile(player);
   }
   while (state.players.length > playerCount) state.players.pop();
   const playerIds = new Set(state.players.map((player) => player.id));
@@ -1800,6 +2134,42 @@ function setNewGamePlayerCount(playerCount) {
   newGamePlayerCount.textContent = String(nextCount);
   document.querySelector('#new-game-remove-player').disabled = nextCount === MIN_PLAYERS;
   document.querySelector('#new-game-add-player').disabled = nextCount === MAX_PLAYERS;
+  renderNewGameLayouts(nextCount);
+}
+
+function renderNewGameLayouts(playerCount) {
+  const layouts = TABLE_LAYOUTS[playerCount];
+  const selectedLayoutId = layouts.some((layout) => layout.id === state.tableLayout)
+    ? state.tableLayout
+    : layouts[0].id;
+  newGameLayoutOptions.replaceChildren();
+  layouts.forEach((layout) => {
+    const option = document.createElement('label');
+    option.className = 'table-layout-option';
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'new-game-layout';
+    input.value = layout.id;
+    input.checked = layout.id === selectedLayoutId;
+    input.setAttribute('aria-label', layout.label);
+    const content = document.createElement('span');
+    const miniature = document.createElement('i');
+    miniature.className = 'table-layout-miniature';
+    miniature.style.gridTemplateRows = `repeat(${layout.rows}, 1fr)`;
+    miniature.style.gridTemplateColumns = layout.columnWeights
+      ? layout.columnWeights.map((weight) => `${weight}fr`).join(' ')
+      : `repeat(${layout.columns}, 1fr)`;
+    layout.slots.forEach((slot) => {
+      const card = document.createElement('b');
+      card.style.gridColumn = `${slot.column} / span ${slot.columnSpan}`;
+      card.style.gridRow = `${slot.row} / span ${slot.rowSpan}`;
+      card.classList.toggle('is-vertical', slot.rotation === 90 || slot.rotation === 270);
+      miniature.append(card);
+    });
+    content.append(miniature);
+    option.append(input, content);
+    newGameLayoutOptions.append(option);
+  });
 }
 
 function updateCustomTimeField() {
@@ -1863,10 +2233,43 @@ function requestLogRestore(entry) {
   logRestoreDialog.showModal();
 }
 
+function renderLogMessage(entry) {
+  const message = document.createElement('p');
+  message.className = 'game-log-message';
+  const names = [entry.playerVisual?.name, ...state.players.map((player) => player.name)]
+    .filter(Boolean)
+    .filter((name, index, allNames) => allNames.indexOf(name) === index)
+    .sort((left, right) => right.length - left.length);
+  const escapedNames = names.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const highlights = [...escapedNames, '[+−-]?\\d+(?:[.,]\\d+)?'];
+  const pattern = new RegExp(`(${highlights.join('|')})`, 'gi');
+  entry.message.split(pattern).filter(Boolean).forEach((part) => {
+    if (pattern.test(part)) {
+      const highlight = document.createElement('strong');
+      highlight.textContent = part;
+      message.append(highlight);
+    } else {
+      message.append(document.createTextNode(part));
+    }
+    pattern.lastIndex = 0;
+  });
+  return message;
+}
+
 function renderGameLog() {
   gameLogList.replaceChildren();
   gameLogEmpty.hidden = state.gameLog.length > 0;
+  const turnStarts = new Set();
+  let previousTurnNumber = null;
+  state.gameLog.forEach((entry) => {
+    const turnNumber = entry.after?.turnNumber;
+    if (Number.isInteger(turnNumber) && turnNumber !== previousTurnNumber) {
+      turnStarts.add(entry.id);
+      previousTurnNumber = turnNumber;
+    }
+  });
   [...state.gameLog].reverse().forEach((entry) => {
+    const turnNumber = entry.after?.turnNumber;
     const item = document.createElement('li');
     item.className = `game-log-entry log-${entry.type}`;
     const action = document.createElement('button');
@@ -1887,22 +2290,22 @@ function renderGameLog() {
       if (visual.image) thumb.style.backgroundImage = `url("${visual.image}")`;
       thumb.setAttribute('aria-hidden', 'true');
     }
-    const content = document.createElement('div');
-    const message = document.createElement('strong');
-    message.textContent = entry.message;
-    const time = document.createElement('time');
-    const date = new Date(entry.timestamp);
-    time.dateTime = entry.timestamp;
-    time.textContent = Number.isNaN(date.getTime())
-      ? ''
-      : date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    content.append(message, time);
+    const message = renderLogMessage(entry);
     action.append(marker);
     if (thumb) action.append(thumb);
-    action.append(content);
+    action.append(message);
     action.addEventListener('click', () => requestLogRestore(entry));
     item.append(action);
     gameLogList.append(item);
+    if (turnStarts.has(entry.id)) {
+      const divider = document.createElement('li');
+      divider.className = 'game-log-turn-divider';
+      divider.setAttribute('aria-label', `Turno ${turnNumber}`);
+      const label = document.createElement('span');
+      label.textContent = `Turno ${turnNumber}`;
+      divider.append(label);
+      gameLogList.append(divider);
+    }
   });
 }
 
@@ -1967,7 +2370,10 @@ async function startNewGame() {
   discardPendingLifeChanges();
   stopAllSounds();
   stopVictoryCelebration();
-  setPlayerCount(Number(newGamePlayerCount.value));
+  const playerCount = Number(newGamePlayerCount.value);
+  const selectedLayoutId = document.querySelector('input[name="new-game-layout"]:checked')?.value;
+  setPlayerCount(playerCount);
+  state.tableLayout = tableLayoutFor(playerCount, selectedLayoutId).id;
   state.startingLife = selectedNewGameLife();
   state.timerMinutes = selectedNewGameMinutes();
   state.useFoolishToken = newGameUseFoolishToken.checked;
@@ -1987,6 +2393,9 @@ async function startNewGame() {
   state.gameStarted = false;
   state.gamePaused = false;
   state.winnerPlayerId = null;
+  state.winnerAwardedPlayerId = null;
+  state.gameStartedAt = null;
+  state.gameEndedAt = null;
   lastTimerTick = Date.now();
   state.gameLog = [];
   state.redoLog = [];
@@ -2057,7 +2466,8 @@ newGameCustomLife.addEventListener('focus', () => {
 
 document.querySelector('#open-saved-players').addEventListener('click', () => {
   renderSavedPlayers();
-  profilesDialog.classList.toggle('player-oriented-opponent', imageDialog.classList.contains('player-oriented-opponent'));
+  profilesDialog.classList.add('player-oriented');
+  profilesDialog.style.setProperty('--modal-rotation', imageDialog.style.getPropertyValue('--modal-rotation'));
   profilesDialog.showModal();
 });
 
@@ -2065,6 +2475,17 @@ customColor.addEventListener('input', () => {
   const hex = customColor.value;
   const color = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16)).join(', ');
   selectPlayerColor(color);
+});
+
+playerLifeFontInputs.forEach((input) => {
+  input.addEventListener('change', () => {
+    const player = state.players.find((item) => item.id === imagePlayerId);
+    if (!player || !LIFE_FONT_OPTIONS.includes(input.value)) return;
+    player.lifeFont = input.value;
+    savePlayerProfile(player);
+    saveState();
+    render();
+  });
 });
 
 document.querySelector('#save-player-profile').addEventListener('click', () => {
@@ -2087,10 +2508,24 @@ document.querySelector('#remove-current-image').addEventListener('click', () => 
   render();
 });
 
+function requestFullscreenIfAvailable() {
+  if (document.fullscreenElement || document.webkitFullscreenElement) return;
+  const request = document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
+  if (!request) return;
+  try {
+    const result = request.call(document.documentElement);
+    result?.catch?.(() => {});
+  } catch (_) {
+    // Alguns navegadores, especialmente no iOS, não oferecem a API de tela cheia.
+  }
+}
+
 document.querySelector('#fullscreen').addEventListener('click', async () => {
   try {
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else await document.documentElement.requestFullscreen();
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      await exit?.call(document);
+    } else requestFullscreenIfAvailable();
   } catch (_) {
     // Alguns navegadores, especialmente no iOS, não oferecem a API de tela cheia.
   }
@@ -2112,11 +2547,24 @@ document.addEventListener('touchstart', unlockSounds, { capture: true, passive: 
 document.addEventListener('touchend', unlockSounds, { capture: true, passive: true });
 document.addEventListener('click', unlockSounds, { capture: true });
 initializeSounds();
+scheduleDailyWinsReset();
 render();
 if (state.winnerPlayerId) startVictoryCelebration();
 else checkForWinner();
 setInterval(tickTimer, 250);
-window.addEventListener('resize', moveNamesClearOfTurnButton);
+let layoutGeometryFrame = null;
+function scheduleLayoutGeometryRefresh() {
+  cancelAnimationFrame(layoutGeometryFrame);
+  layoutGeometryFrame = requestAnimationFrame(() => {
+    layoutGeometryFrame = null;
+    if (!app.querySelector('.player-card')) return;
+    positionTurnControls(tableLayoutFor(state.players.length, state.tableLayout));
+    moveNamesClearOfTurnButton();
+  });
+}
+window.addEventListener('resize', scheduleLayoutGeometryRefresh);
+document.addEventListener('fullscreenchange', scheduleLayoutGeometryRefresh);
+document.addEventListener('webkitfullscreenchange', scheduleLayoutGeometryRefresh);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     tickTimer();
