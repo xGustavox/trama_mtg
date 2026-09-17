@@ -463,7 +463,7 @@ function loadState() {
       const players = saved.players.map((player, index) => ({
         ...player,
         color: player.color || COLORS[index],
-        life: Number.isFinite(player.life) ? Math.max(0, player.life) : (saved.startingLife || 40),
+        life: Number.isFinite(player.life) ? player.life : (saved.startingLife || 40),
         commanderDamage: player.commanderDamage || {},
         poisonCounters: Number.isFinite(player.poisonCounters) ? Math.max(0, player.poisonCounters) : 0,
         radiationCounters: Number.isFinite(player.radiationCounters) ? Math.max(0, player.radiationCounters) : 0,
@@ -800,7 +800,7 @@ function updateControls() {
   turnStatus.hidden = gameWon || isReordering || !state.gameStarted || state.gamePaused || priorityActive;
   pausedStatus.hidden = gameWon || !state.gameStarted || !state.gamePaused || isReordering;
   passLabel.textContent = gameWon
-    ? 'GG'
+    ? 'Jogar novamente'
     : isChoosingStarter
     ? 'Sorteando…'
     : isReordering
@@ -814,13 +814,13 @@ function updateControls() {
   passTurnButton.classList.toggle('game-over', gameWon);
   gameDuration.hidden = !gameWon;
   const totalSeconds = gameWon ? totalMatchSeconds() : null;
-  gameDuration.textContent = Number.isFinite(totalSeconds) ? formatMatchDuration(totalSeconds) : '';
+  gameDuration.textContent = Number.isFinite(totalSeconds) ? `GG - ${formatMatchDuration(totalSeconds)}` : 'GG';
   passTurnButton.classList.toggle('confirm-reorder', isReordering);
   passTurnButton.classList.toggle(
     'ready-to-start',
     !gameWon && !isReordering && !isChoosingStarter && (!state.gameStarted || state.gamePaused),
   );
-  passTurnButton.disabled = isChoosingStarter || gameWon;
+  passTurnButton.disabled = isChoosingStarter;
   const orientedPlayerId = state.winnerPlayerId || state.priorityPlayerId || state.turnPlayerId;
   const nextTurnButtonOrientation = isReordering ? turnButtonOrientation : playerRotation(orientedPlayerId);
   if (!isReordering && nextTurnButtonOrientation !== turnButtonOrientation) {
@@ -831,7 +831,7 @@ function updateControls() {
   passTurnButton.setAttribute('aria-label', isReordering
     ? 'Confirmar reorganização da mesa'
     : gameWon
-      ? 'GG — partida encerrada'
+      ? 'Jogar novamente'
     : state.gamePaused
       ? 'Continuar jogo'
       : priorityActive ? 'Encerrar prioridade' : state.gameStarted ? `Passar o turno ${state.turnNumber}` : 'Começar jogo');
@@ -950,8 +950,9 @@ function positionTurnControls(tableLayout) {
 
 function bindPlayerNameButton(button, player, fallbackName) {
   button.textContent = player.name;
-  button.addEventListener('click', (event) => {
+  button.addEventListener('click', async (event) => {
     event.stopPropagation();
+    await exitFullscreenForTextEntry();
     const input = document.createElement('input');
     input.className = 'player-name is-editing';
     input.maxLength = 20;
@@ -1056,8 +1057,12 @@ function render() {
     settingsButton.disabled = isReordering;
     settingsButton.addEventListener('click', () => openImagePicker(player.id));
     const foolishToken = card.querySelector('.foolish-token');
-    foolishToken.hidden = !state.gameStarted || !state.useFoolishToken
-      || !player.foolishTokenAvailable || isPlayerEliminated(player);
+    foolishToken.hidden = !state.gameStarted || !state.useFoolishToken || isPlayerEliminated(player);
+    foolishToken.classList.toggle('is-used', !player.foolishTokenAvailable);
+    foolishToken.setAttribute(
+      'aria-label',
+      player.foolishTokenAvailable ? 'Usar Ficha da Burrice' : 'Restaurar Ficha da Burrice',
+    );
     foolishToken.disabled = isReordering;
     foolishToken.addEventListener('click', () => openFoolishTokenConfirmation(player.id, card));
     const toolbar = card.querySelector('.player-toolbar');
@@ -1233,7 +1238,7 @@ function changeLife(playerId, amount) {
     before: gameSnapshot(),
     wasEliminated,
   };
-  const nextLife = Math.max(0, player.life + amount);
+  const nextLife = player.life + amount;
   const appliedChange = nextLife - player.life;
   if (appliedChange === 0) return;
   player.life = nextLife;
@@ -1337,12 +1342,13 @@ function loadCounterIcon(element, counter) {
 
 function openFoolishTokenConfirmation(playerId, card) {
   const player = state.players.find((item) => item.id === playerId);
-  if (!player || !state.gameStarted || !state.useFoolishToken || !player.foolishTokenAvailable
+  if (!player || !state.gameStarted || !state.useFoolishToken
     || isPlayerEliminated(player) || card.querySelector('.card-counter-panel')) return;
+  const restoring = !player.foolishTokenAvailable;
   const panel = document.createElement('section');
   panel.className = 'card-counter-panel foolish-token-panel';
   panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-label', `Usar Ficha da Burrice de ${player.name}`);
+  panel.setAttribute('aria-label', `${restoring ? 'Restaurar' : 'Usar'} Ficha da Burrice de ${player.name}`);
   const background = document.createElement('div');
   background.className = 'card-counter-background foolish-token-background';
   background.style.backgroundImage = 'url("assets/ficha_burrice.png")';
@@ -1355,9 +1361,11 @@ function openFoolishTokenConfirmation(playerId, card) {
   tokenPreview.src = 'assets/ficha_burrice.png';
   tokenPreview.alt = 'Ficha da Burrice';
   const title = document.createElement('strong');
-  title.textContent = 'Usar a Ficha da Burrice?';
+  title.textContent = restoring ? 'Restaurar a Ficha da Burrice?' : 'Usar a Ficha da Burrice?';
   const description = document.createElement('span');
-  description.textContent = `${player.name} só pode usar esta ficha uma vez por partida.`;
+  description.textContent = restoring
+    ? `${player.name} poderá usar a ficha novamente nesta partida.`
+    : `${player.name} só pode usar esta ficha uma vez por partida.`;
   const actions = document.createElement('div');
   actions.className = 'foolish-token-actions';
   const cancel = document.createElement('button');
@@ -1366,7 +1374,7 @@ function openFoolishTokenConfirmation(playerId, card) {
   const confirm = document.createElement('button');
   confirm.type = 'button';
   confirm.className = 'confirm-foolish-token';
-  confirm.textContent = 'Usar ficha';
+  confirm.textContent = restoring ? 'Restaurar ficha' : 'Usar ficha';
   actions.append(cancel, confirm);
   content.append(tokenPreview, title, description, actions);
   orientation.append(content);
@@ -1381,9 +1389,15 @@ function openFoolishTokenConfirmation(playerId, card) {
   cancel.addEventListener('click', close);
   confirm.addEventListener('click', () => {
     const before = gameSnapshot();
-    player.foolishTokenAvailable = false;
-    playSound(SOUND_PATHS.foolishToken[randomIndex(SOUND_PATHS.foolishToken.length)]);
-    addLogEntry('token', `${player.name} usou a Ficha da Burrice`, before, true, player.id);
+    player.foolishTokenAvailable = restoring;
+    if (!restoring) playSound(SOUND_PATHS.foolishToken[randomIndex(SOUND_PATHS.foolishToken.length)]);
+    addLogEntry(
+      'token',
+      `${player.name} ${restoring ? 'restaurou' : 'usou'} a Ficha da Burrice`,
+      before,
+      true,
+      player.id,
+    );
     render();
   });
   panel.addEventListener('click', (event) => {
@@ -1599,7 +1613,7 @@ function openCommanderDamage(targetId, sourceId, card) {
     const appliedDamage = next - current;
     if (appliedDamage === 0) return;
     target.commanderDamage[sourceId] = next;
-    target.life = Math.max(0, target.life - appliedDamage);
+    target.life -= appliedDamage;
     playDeathSoundIfNeeded(target, wasEliminated);
     checkForWinner();
     if (isPlayerEliminated(target) && state.priorityPlayerId === target.id) state.priorityPlayerId = null;
@@ -1841,6 +1855,10 @@ function passTurn(direction = 1) {
 
 function startOrPassTurn() {
   if (isChoosingStarter) return;
+  if (state.winnerPlayerId) {
+    replayGame();
+    return;
+  }
   if (isReordering) {
     finishReordering();
     return;
@@ -2182,7 +2200,7 @@ function updateCustomLifeField() {
   customLifeField.hidden = selectedLife !== 'custom';
 }
 
-function openNewGameDialog() {
+function syncNewGameFormFromState() {
   setNewGamePlayerCount(state.players.length);
   const lifePreset = [20, 30, 40].includes(state.startingLife) ? String(state.startingLife) : 'custom';
   document.querySelector(`input[name="new-game-life"][value="${lifePreset}"]`).checked = true;
@@ -2195,7 +2213,16 @@ function openNewGameDialog() {
   newGameUseFoolishToken.checked = state.useFoolishToken;
   updateCustomLifeField();
   updateCustomTimeField();
+}
+
+function openNewGameDialog() {
+  syncNewGameFormFromState();
   newGameDialog.showModal();
+}
+
+function replayGame() {
+  syncNewGameFormFromState();
+  startNewGame();
 }
 
 function selectedNewGameMinutes() {
@@ -2399,7 +2426,7 @@ async function startNewGame() {
   lastTimerTick = Date.now();
   state.gameLog = [];
   state.redoLog = [];
-  newGameDialog.close();
+  if (newGameDialog.open) newGameDialog.close();
   isChoosingStarter = true;
 
   const targetIndex = randomIndex(state.tableOrder.length);
@@ -2509,7 +2536,8 @@ document.querySelector('#remove-current-image').addEventListener('click', () => 
 });
 
 function requestFullscreenIfAvailable() {
-  if (document.fullscreenElement || document.webkitFullscreenElement) return;
+  if (isStandaloneApp() || document.fullscreenElement || document.webkitFullscreenElement) return;
+  blurActiveTextEntry();
   const request = document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
   if (!request) return;
   try {
@@ -2517,6 +2545,41 @@ function requestFullscreenIfAvailable() {
     result?.catch?.(() => {});
   } catch (_) {
     // Alguns navegadores, especialmente no iOS, não oferecem a API de tela cheia.
+  }
+}
+
+const TEXT_ENTRY_SELECTOR = [
+  'input:not([type])',
+  'input[type="text"]',
+  'input[type="search"]',
+  'input[type="number"]',
+  'input[type="email"]',
+  'input[type="tel"]',
+  'input[type="url"]',
+  'input[type="password"]',
+  'textarea',
+  '[contenteditable="true"]',
+].join(',');
+
+function isStandaloneApp() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function activeFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement;
+}
+
+function blurActiveTextEntry() {
+  if (document.activeElement?.matches?.(TEXT_ENTRY_SELECTOR)) document.activeElement.blur();
+}
+
+async function exitFullscreenForTextEntry() {
+  if (!activeFullscreenElement()) return;
+  const exit = document.exitFullscreen || document.webkitExitFullscreen;
+  try {
+    await exit?.call(document);
+  } catch (_) {
+    // O navegador pode encerrar a tela cheia por conta própria.
   }
 }
 
@@ -2536,16 +2599,39 @@ document.querySelectorAll('.close-modal').forEach((button) => {
 });
 
 [imageDialog, profilesDialog, gameLogDialog, logRestoreDialog, newGameDialog].forEach((dialog) => {
+  dialog.addEventListener('close', blurActiveTextEntry);
   dialog.addEventListener('click', (event) => {
     if (event.target === dialog) dialog.close();
   });
 });
+
+document.addEventListener('pointerdown', (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const textEntry = target?.closest(TEXT_ENTRY_SELECTOR);
+  if (!textEntry) {
+    blurActiveTextEntry();
+    return;
+  }
+  if (!activeFullscreenElement()) return;
+  event.preventDefault();
+  exitFullscreenForTextEntry().then(() => textEntry.focus({ preventScroll: true }));
+}, { capture: true });
+
+document.addEventListener('focusin', (event) => {
+  if (event.target instanceof Element && event.target.matches(TEXT_ENTRY_SELECTOR)) {
+    exitFullscreenForTextEntry();
+  }
+}, { capture: true });
 
 document.addEventListener('pointerdown', unlockSounds, { capture: true });
 document.addEventListener('pointerup', unlockSounds, { capture: true });
 document.addEventListener('touchstart', unlockSounds, { capture: true, passive: true });
 document.addEventListener('touchend', unlockSounds, { capture: true, passive: true });
 document.addEventListener('click', unlockSounds, { capture: true });
+document.documentElement.classList.toggle('is-standalone', isStandaloneApp());
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js').catch(() => {}));
+}
 initializeSounds();
 scheduleDailyWinsReset();
 render();

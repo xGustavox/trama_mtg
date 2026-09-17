@@ -441,6 +441,7 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 }
 .foolish-token[hidden] { display: none; }
 .foolish-token img { width: 100%; height: 100%; object-fit: cover; }
+.foolish-token.is-used img { opacity: .28; filter: grayscale(1); }
 .player-card.is-opponent .card-settings {
   top: auto;
   bottom: max(12px, 4cqh);
@@ -796,10 +797,10 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   background: #d9f1dc;
   color: #17351f;
   box-shadow: 0 8px 28px rgba(0,0,0,.5), 0 0 28px rgba(86,216,121,.46), inset 0 0 0 1px rgba(31,107,54,.2);
-  cursor: default;
+  cursor: pointer;
 }
-.pass-turn.game-over .pass-label { margin-top: 0; font-size: 1.4rem; letter-spacing: .08em; }
-.pass-turn.game-over .game-duration { margin-top: 5px; font: 800 .78rem 'Manrope'; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+.pass-turn.game-over .pass-label { max-width: 112px; margin-top: 0; font-size: .9rem; letter-spacing: .045em; }
+.pass-turn.game-over .game-duration { margin-top: 7px; font: 800 .76rem 'Manrope'; letter-spacing: .035em; font-variant-numeric: tabular-nums; }
 .pass-turn.ready-to-start::after {
   content: '';
   position: absolute;
@@ -1443,6 +1444,24 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   cursor: pointer;
 }
 .foolish-token-actions .confirm-foolish-token { background: #f2eee0; color: #171a15; }
+.player-card:is(.is-side-left, .is-side-right) .foolish-token-confirmation { gap: 5px; }
+.player-card:is(.is-side-left, .is-side-right) .foolish-token-preview {
+  width: min(30%, 120px);
+  height: clamp(64px, 24cqw, 110px);
+  margin-bottom: 0;
+}
+.player-card:is(.is-side-left, .is-side-right) .foolish-token-confirmation > strong {
+  font-size: clamp(.9rem, 5cqw, 1.2rem);
+}
+.player-card:is(.is-side-left, .is-side-right) .foolish-token-confirmation > span {
+  font-size: clamp(.62rem, 2.8cqw, .78rem);
+}
+.player-card:is(.is-side-left, .is-side-right) .foolish-token-actions { margin-top: 3px; }
+.player-card:is(.is-side-left, .is-side-right) .foolish-token-actions button {
+  min-width: 100px;
+  min-height: 38px;
+  padding-block: 6px;
+}
 
 .victory-confetti {
   position: fixed;
@@ -1473,6 +1492,36 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 }
 .victory-confetti.css-confetti::after { transform: rotate(45deg); animation-delay: .14s; }
 @keyframes css-confetti-fall { to { top: 108%; transform: rotate(720deg); } }
+
+:root:fullscreen,
+:root:-webkit-full-screen,
+:root.is-standalone { --sidebar-width: 58px; }
+:root:fullscreen .app-sidebar,
+:root:-webkit-full-screen .app-sidebar,
+:root.is-standalone .app-sidebar { padding-inline: 5px; }
+:root:fullscreen .app-mark,
+:root:-webkit-full-screen .app-mark,
+:root.is-standalone .app-mark {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+}
+:root:fullscreen .sidebar-actions,
+:root:-webkit-full-screen .sidebar-actions,
+:root.is-standalone .sidebar-actions { right: 5px; left: 5px; gap: 6px; }
+:root:fullscreen .sidebar-button,
+:root:-webkit-full-screen .sidebar-button,
+:root.is-standalone .sidebar-button {
+  min-height: 52px;
+  padding: 8px 4px;
+}
+:root:fullscreen .sidebar-button span,
+:root:-webkit-full-screen .sidebar-button span,
+:root.is-standalone .sidebar-button span { display: none; }
+:root:fullscreen .sidebar-button svg,
+:root:-webkit-full-screen .sidebar-button svg,
+:root.is-standalone .sidebar-button svg { width: 24px; }
 
 @media (orientation: portrait) {
   #app.count-2 { grid-template: repeat(2, 1fr) / 1fr; }
