@@ -1,7 +1,14 @@
 {
-  "version": "1.1.0",
+  "version": "1.1.1",
   "updatedAt": "2026-09-17",
   "history": [
+    {
+      "version": "1.1.1",
+      "date": "2026-09-17",
+      "changes": [
+        "Correct installed app layout and controls"
+      ]
+    },
     {
       "version": "1.1.0",
       "date": "2026-09-17",
