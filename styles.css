@@ -40,8 +40,6 @@ html, body {
   height: 100lvh;
   min-height: 100lvh;
 }
-:root.is-standalone #app,
-:root.is-standalone .app-sidebar { bottom: calc(-1 * env(safe-area-inset-bottom, 0px)); }
 :root.is-standalone #fullscreen,
 :root.is-standalone #install-app { display: none; }
 
@@ -55,7 +53,6 @@ html, body {
     inset: 0;
     background: var(--blue-black);
   }
-  #app, .app-sidebar { bottom: calc(-1 * env(safe-area-inset-bottom, 0px)); }
   #fullscreen, #install-app { display: none; }
   .app-version { margin-top: auto; }
 }
@@ -852,6 +849,8 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .pass-turn.no-status .pass-label { max-width: 92px; margin-top: 0; font-size: .86rem; }
 .pass-turn.game-paused .pass-label { max-width: 96px; margin-top: 5px; }
 .pass-turn.ready-to-start { background: #dcefd4; color: #172416; }
+.pass-turn.waiting-first-player { cursor: not-allowed; }
+.pass-turn.waiting-first-player .pass-label { max-width: 112px; font-size: .72rem; line-height: 1.25; }
 .pass-turn.priority-active { background: #ffd45c; color: #2b2106; }
 .pass-turn.priority-active:hover { background: #ffe286; }
 .pass-turn.game-over, .pass-turn.game-over:hover {
@@ -1470,8 +1469,8 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 }
 .time-options input:checked + span { border-color: #7b9db4; background: #202a31; color: #f1f6f8; box-shadow: 0 0 0 2px rgba(96,142,171,.16); }
 .time-options input:focus-visible + span { outline: 2px solid #d7e5ee; outline-offset: 2px; }
-.foolish-token-setting { position: relative; cursor: pointer; }
-.foolish-token-setting > input { position: absolute; opacity: 0; pointer-events: none; }
+.toggle-setting { position: relative; cursor: pointer; }
+.toggle-setting > input { position: absolute; opacity: 0; pointer-events: none; }
 .setting-switch {
   position: relative;
   width: 58px;
@@ -1493,9 +1492,9 @@ input, textarea { -webkit-user-select: text; user-select: text; }
   background: #9b9da7;
   transition: transform 150ms, background 150ms;
 }
-.foolish-token-setting > input:checked + .setting-switch { border-color: #517e9b; background: #213d50; }
-.foolish-token-setting > input:checked + .setting-switch::after { background: #d7eaf6; transform: translateX(24px); }
-.foolish-token-setting > input:focus-visible + .setting-switch { outline: 2px solid #d7e5ee; outline-offset: 2px; }
+.toggle-setting > input:checked + .setting-switch { border-color: #517e9b; background: #213d50; }
+.toggle-setting > input:checked + .setting-switch::after { background: #d7eaf6; transform: translateX(24px); }
+.toggle-setting > input:focus-visible + .setting-switch { outline: 2px solid #d7e5ee; outline-offset: 2px; }
 .custom-time-field { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 13px; color: #b0b2bb; font-size: .76rem; font-weight: 600; }
 .custom-time-field[hidden] { display: none; }
 .custom-time-field > span:last-child { display: flex; align-items: center; gap: 8px; }

@@ -14,13 +14,7 @@ const COLORS = [
   '80, 128, 142',
   '91, 48, 0',
 ];
-const COLOR_CHOICES = [
-  '42, 39, 44',
-  '14, 104, 171',
-  '202, 55, 45',
-  '0, 115, 62',
-  '238, 230, 197',
-];
+const COLOR_CHOICES = COLORS;
 const LIFE_FONT_OPTIONS = ['standard', 'minimal', 'gothic', 'futuristic'];
 
 function greatestCommonDivisor(left, right) {
@@ -146,6 +140,7 @@ const newGamePlayerCount = document.querySelector('#new-game-player-count');
 const newGameCustomTime = document.querySelector('#new-game-custom-time');
 const newGameCustomLife = document.querySelector('#new-game-custom-life');
 const newGameUseFoolishToken = document.querySelector('#new-game-use-foolish-token');
+const newGameRandomizeStarter = document.querySelector('#new-game-randomize-starter');
 const newGameLayoutOptions = document.querySelector('#new-game-layout-options');
 const customTimeField = document.querySelector('#custom-time-field');
 const customLifeField = document.querySelector('#custom-life-field');
@@ -489,7 +484,11 @@ function loadState() {
       const priorityPlayerId = players.some((player) => player.id === saved.priorityPlayerId && !isPlayerEliminated(player))
         ? saved.priorityPlayerId
         : null;
-      const turnPlayerId = players.some((player) => player.id === saved.turnPlayerId)
+      const randomizeFirstPlayer = saved.randomizeFirstPlayer !== false;
+      const awaitingManualStarter = saved.gameStarted === false && !randomizeFirstPlayer && saved.turnPlayerId === null;
+      const turnPlayerId = awaitingManualStarter
+        ? null
+        : players.some((player) => player.id === saved.turnPlayerId)
         ? saved.turnPlayerId
         : players[0].id;
       const turnNumber = Number.isInteger(saved.turnNumber) && saved.turnNumber > 0 ? saved.turnNumber : 1;
@@ -513,14 +512,16 @@ function loadState() {
         && savedTableOrder.every((id) => players.some((player) => player.id === id))
         ? savedTableOrder
         : players.map((player) => player.id);
-      const roundStartPlayerId = players.some((player) => player.id === saved.roundStartPlayerId)
+      const roundStartPlayerId = awaitingManualStarter
+        ? null
+        : players.some((player) => player.id === saved.roundStartPlayerId)
         ? saved.roundStartPlayerId
         : tableOrder[0];
       const gameLog = Array.isArray(saved.gameLog) ? saved.gameLog : [];
       const redoLog = Array.isArray(saved.redoLog) ? saved.redoLog : [];
       const savedPendingLifeChanges = Array.isArray(saved.pendingLifeChanges) ? saved.pendingLifeChanges : [];
       const tableLayout = tableLayoutFor(players.length, saved.tableLayout).id;
-      return { ...saved, players, tableOrder, priorityPlayerId: timerMinutes === null ? null : priorityPlayerId, turnPlayerId, roundStartPlayerId, turnNumber, gameStarted, gamePaused, soundMuted, useFoolishToken, winnerPlayerId, winnerAwardedPlayerId, gameStartedAt, gameEndedAt, timerMinutes, tableLayout, gameLog, redoLog, savedPendingLifeChanges };
+      return { ...saved, players, tableOrder, priorityPlayerId: timerMinutes === null ? null : priorityPlayerId, turnPlayerId, roundStartPlayerId, turnNumber, gameStarted, gamePaused, soundMuted, useFoolishToken, randomizeFirstPlayer, winnerPlayerId, winnerAwardedPlayerId, gameStartedAt, gameEndedAt, timerMinutes, tableLayout, gameLog, redoLog, savedPendingLifeChanges };
     }
   } catch (_) {
     // A partida simplesmente recomeça se os dados locais estiverem inválidos.
@@ -531,6 +532,7 @@ function loadState() {
     timerMinutes: 30,
     tableLayout: tableLayoutFor(4).id,
     useFoolishToken: true,
+    randomizeFirstPlayer: true,
     players,
     tableOrder: players.map((player) => player.id),
     priorityPlayerId: null,
@@ -684,15 +686,6 @@ function formatTime(totalSeconds) {
 }
 
 function totalMatchSeconds() {
-  if (state.timerMinutes !== null) {
-    const initialPlayerSeconds = state.timerMinutes * 60;
-    return state.players.reduce((total, player) => {
-      const remainingSeconds = Number.isFinite(player.timerSeconds)
-        ? player.timerSeconds
-        : initialPlayerSeconds;
-      return total + Math.max(0, initialPlayerSeconds - remainingSeconds);
-    }, 0);
-  }
   if (!Number.isFinite(state.gameStartedAt) || !Number.isFinite(state.gameEndedAt)) return null;
   return Math.max(0, Math.floor((state.gameEndedAt - state.gameStartedAt) / 1000));
 }
@@ -809,6 +802,7 @@ function updateControls() {
   const gameDuration = document.querySelector('#game-duration');
   const priorityActive = state.timerMinutes !== null && Boolean(state.priorityPlayerId);
   const gameWon = state.gameStarted && Boolean(state.winnerPlayerId);
+  const waitingForFirstPlayer = !state.gameStarted && !isChoosingStarter && !state.turnPlayerId;
   turnStatus.hidden = gameWon || isReordering || !state.gameStarted || state.gamePaused || priorityActive;
   pausedStatus.hidden = gameWon || !state.gameStarted || !state.gamePaused || isReordering;
   passLabel.textContent = gameWon
@@ -819,20 +813,23 @@ function updateControls() {
       ? 'Confirmar'
       : state.gamePaused
         ? 'Continuar jogo'
-        : priorityActive ? 'Encerrar prioridade' : state.gameStarted ? 'Passar turno' : 'Começar jogo';
+        : priorityActive
+          ? 'Encerrar prioridade'
+          : state.gameStarted ? 'Passar turno' : waitingForFirstPlayer ? 'Defina o primeiro jogador' : 'Começar jogo';
   passTurnButton.classList.toggle('no-status', turnStatus.hidden && pausedStatus.hidden);
   passTurnButton.classList.toggle('game-paused', state.gameStarted && state.gamePaused);
   passTurnButton.classList.toggle('priority-active', priorityActive);
   passTurnButton.classList.toggle('game-over', gameWon);
+  passTurnButton.classList.toggle('waiting-first-player', waitingForFirstPlayer);
   gameDuration.hidden = !gameWon;
   const totalSeconds = gameWon ? totalMatchSeconds() : null;
   gameDuration.textContent = Number.isFinite(totalSeconds) ? `GG - ${formatMatchDuration(totalSeconds)}` : 'GG';
   passTurnButton.classList.toggle('confirm-reorder', isReordering);
   passTurnButton.classList.toggle(
     'ready-to-start',
-    !gameWon && !isReordering && !isChoosingStarter && (!state.gameStarted || state.gamePaused),
+    !gameWon && !isReordering && !isChoosingStarter && !waitingForFirstPlayer && (!state.gameStarted || state.gamePaused),
   );
-  passTurnButton.disabled = isChoosingStarter;
+  passTurnButton.disabled = isChoosingStarter || waitingForFirstPlayer;
   const orientedPlayerId = state.winnerPlayerId || state.priorityPlayerId || state.turnPlayerId;
   const nextTurnButtonOrientation = isReordering ? turnButtonOrientation : playerRotation(orientedPlayerId);
   if (!isReordering && nextTurnButtonOrientation !== turnButtonOrientation) {
@@ -846,7 +843,9 @@ function updateControls() {
       ? 'Jogar novamente'
     : state.gamePaused
       ? 'Continuar jogo'
-      : priorityActive ? 'Encerrar prioridade' : state.gameStarted ? `Passar o turno ${state.turnNumber}` : 'Começar jogo');
+      : priorityActive
+        ? 'Encerrar prioridade'
+        : state.gameStarted ? `Passar o turno ${state.turnNumber}` : waitingForFirstPlayer ? 'Defina o primeiro jogador' : 'Começar jogo');
   arrangeTableButton.classList.toggle('active', isReordering);
   arrangeTableButton.setAttribute('aria-pressed', String(isReordering));
   arrangeTableLabel.textContent = isReordering ? 'Confirmar' : 'Reorganizar';
@@ -1069,13 +1068,7 @@ function render() {
     settingsButton.disabled = isReordering;
     settingsButton.addEventListener('click', () => openImagePicker(player.id));
     const foolishToken = card.querySelector('.foolish-token');
-    foolishToken.hidden = !state.gameStarted || !state.useFoolishToken || isPlayerEliminated(player);
-    foolishToken.classList.toggle('is-used', !player.foolishTokenAvailable);
-    foolishToken.setAttribute(
-      'aria-label',
-      player.foolishTokenAvailable ? 'Usar Ficha da Burrice' : 'Restaurar Ficha da Burrice',
-    );
-    foolishToken.disabled = isReordering;
+    syncFoolishToken(foolishToken, player);
     foolishToken.addEventListener('click', () => openFoolishTokenConfirmation(player.id, card));
     const toolbar = card.querySelector('.player-toolbar');
     card.querySelector('.player-content').append(toolbar);
@@ -1152,6 +1145,16 @@ function render() {
   moveNamesClearOfTurnButton();
 }
 
+function syncFoolishToken(button, player) {
+  button.hidden = !state.gameStarted || !state.useFoolishToken || isPlayerEliminated(player);
+  button.classList.toggle('is-used', !player.foolishTokenAvailable);
+  button.setAttribute(
+    'aria-label',
+    player.foolishTokenAvailable ? 'Usar Ficha da Burrice' : 'Restaurar Ficha da Burrice',
+  );
+  button.disabled = isReordering;
+}
+
 function updateTurnState() {
   app.querySelectorAll('.player-card').forEach((card) => {
     const player = state.players.find((item) => item.id === card.dataset.playerId);
@@ -1160,9 +1163,11 @@ function updateTurnState() {
     const isTiming = state.timerMinutes !== null && state.gameStarted && !state.gamePaused
       && !isPlayerEliminated(player) && player.id === (state.priorityPlayerId || state.turnPlayerId);
     card.classList.toggle('is-turn', player.id === state.turnPlayerId && !state.priorityPlayerId);
+    card.classList.toggle('is-lottery', isChoosingStarter && player.id === state.turnPlayerId);
     card.classList.toggle('has-priority', hasPriority);
     card.classList.toggle('is-timing', isTiming);
-    card.querySelector('.timer-value').textContent = state.timerMinutes === null ? '' : formatTime(player.timerSeconds);
+    const timerValue = card.querySelector('.timer-value');
+    if (timerValue) timerValue.textContent = state.timerMinutes === null ? '' : formatTime(player.timerSeconds);
     const priorityButton = card.querySelector('.priority-button');
     if (priorityButton) {
       priorityButton.lastChild.textContent = hasPriority ? ' Encerrar' : ' Prioridade';
@@ -1430,7 +1435,8 @@ function openFoolishTokenConfirmation(playerId, card) {
       true,
       player.id,
     );
-    render();
+    close();
+    syncFoolishToken(card.querySelector('.foolish-token'), player);
   });
   panel.addEventListener('click', (event) => {
     if (event.target === panel || event.target === background) close();
@@ -1907,6 +1913,7 @@ function startOrPassTurn() {
     passTurn();
     return;
   }
+  if (!state.turnPlayerId) return;
   requestFullscreenIfAvailable();
   const firstPlayer = state.players.find((player) => player.id === state.turnPlayerId);
   state.gameStarted = true;
@@ -2243,6 +2250,7 @@ function syncNewGameFormFromState() {
   document.querySelector(`input[name="new-game-time"][value="${preset}"]`).checked = true;
   if (preset === 'custom') newGameCustomTime.value = String(state.timerMinutes);
   newGameUseFoolishToken.checked = state.useFoolishToken;
+  newGameRandomizeStarter.checked = state.randomizeFirstPlayer !== false;
   updateCustomLifeField();
   updateCustomTimeField();
 }
@@ -2436,6 +2444,7 @@ async function startNewGame() {
   state.startingLife = selectedNewGameLife();
   state.timerMinutes = selectedNewGameMinutes();
   state.useFoolishToken = newGameUseFoolishToken.checked;
+  state.randomizeFirstPlayer = newGameRandomizeStarter.checked;
   if (state.timerMinutes !== null) newGameCustomTime.value = String(state.timerMinutes);
   state.players.forEach((player) => {
     player.life = state.startingLife;
@@ -2445,8 +2454,8 @@ async function startNewGame() {
     player.radiationCounters = 0;
     player.foolishTokenAvailable = state.useFoolishToken;
   });
-  state.turnPlayerId = state.players[0].id;
-  state.roundStartPlayerId = state.players[0].id;
+  state.turnPlayerId = state.randomizeFirstPlayer ? state.players[0].id : null;
+  state.roundStartPlayerId = state.turnPlayerId;
   state.priorityPlayerId = null;
   state.turnNumber = 1;
   state.gameStarted = false;
@@ -2459,13 +2468,20 @@ async function startNewGame() {
   state.gameLog = [];
   state.redoLog = [];
   if (newGameDialog.open) newGameDialog.close();
+  if (!state.randomizeFirstPlayer) {
+    isChoosingStarter = false;
+    saveState();
+    render();
+    return;
+  }
   isChoosingStarter = true;
+  render();
 
   const targetIndex = randomIndex(state.tableOrder.length);
   const lastStep = state.tableOrder.length * 3 + targetIndex;
   for (let step = 0; step <= lastStep; step += 1) {
     state.turnPlayerId = state.tableOrder[step % state.tableOrder.length];
-    render();
+    updateTurnState();
     const delay = 70 + Math.round((step / lastStep) * 130);
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
@@ -2474,7 +2490,7 @@ async function startNewGame() {
   state.roundStartPlayerId = state.turnPlayerId;
   isChoosingStarter = false;
   saveState();
-  render();
+  updateTurnState();
 }
 
 document.querySelector('#new-game').addEventListener('click', openNewGameDialog);
@@ -2758,6 +2774,8 @@ function scheduleLayoutGeometryRefresh() {
   });
 }
 window.addEventListener('resize', scheduleLayoutGeometryRefresh);
+window.addEventListener('pageshow', scheduleLayoutGeometryRefresh);
+window.visualViewport?.addEventListener('resize', scheduleLayoutGeometryRefresh);
 document.addEventListener('fullscreenchange', scheduleLayoutGeometryRefresh);
 document.addEventListener('webkitfullscreenchange', scheduleLayoutGeometryRefresh);
 document.addEventListener('visibilitychange', () => {
@@ -2766,5 +2784,7 @@ document.addEventListener('visibilitychange', () => {
     saveState();
   } else {
     lastTimerTick = Date.now();
+    scheduleLayoutGeometryRefresh();
+    setTimeout(scheduleLayoutGeometryRefresh, 300);
   }
 });

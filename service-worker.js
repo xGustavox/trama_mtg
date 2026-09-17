@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trama-mtg-v3';
+const CACHE_NAME = 'trama-mtg-v4';
 const APP_FILES = [
   './',
   './index.html',

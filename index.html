@@ -220,7 +220,15 @@
             <span><input id="new-game-custom-time" type="number" min="1" max="180" inputmode="numeric" value="45"><b>min</b></span>
           </label>
         </fieldset>
-        <label class="new-game-setting foolish-token-setting">
+        <label class="new-game-setting toggle-setting">
+          <div>
+            <strong>Sortear primeiro jogador</strong>
+            <small>Escolher aleatoriamente quem começa</small>
+          </div>
+          <input id="new-game-randomize-starter" type="checkbox" checked />
+          <span class="setting-switch" aria-hidden="true"></span>
+        </label>
+        <label class="new-game-setting toggle-setting">
           <div>
             <strong>Ficha da Burrice</strong>
             <small>Uma ficha disponível para cada jogador</small>
