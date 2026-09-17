@@ -162,6 +162,12 @@ const customColor = document.querySelector('#custom-color');
 const soundButton = document.querySelector('#toggle-sound');
 const soundLabel = document.querySelector('#sound-label');
 const victoryConfetti = document.querySelector('#victory-confetti');
+const fullscreenButton = document.querySelector('#fullscreen');
+const installAppButton = document.querySelector('#install-app');
+const installDialog = document.querySelector('#install-dialog');
+const appVersionButton = document.querySelector('#app-version');
+const versionDialog = document.querySelector('#version-dialog');
+const versionHistory = document.querySelector('#version-history');
 
 let imagePlayerId = null;
 let isReordering = false;
@@ -178,6 +184,11 @@ const mediaSounds = new Map();
 const activeSoundSources = new Set();
 let victoryAnimation = null;
 let victorySoundTimer = null;
+let deferredInstallPrompt = null;
+let versionInfo = {
+  version: '1.0.0',
+  history: [{ version: '1.0.0', date: '2026-09-17', changes: ['Primeira versão publicada do Trama MTG Tracker.'] }],
+};
 let victoryConfettiTimer = null;
 let reverseTurnHoldTimer = null;
 let reverseTurnTriggered = false;
@@ -1140,6 +1151,26 @@ function render() {
   moveNamesClearOfTurnButton();
 }
 
+function updateTurnState() {
+  app.querySelectorAll('.player-card').forEach((card) => {
+    const player = state.players.find((item) => item.id === card.dataset.playerId);
+    if (!player) return;
+    const hasPriority = state.timerMinutes !== null && player.id === state.priorityPlayerId;
+    const isTiming = state.timerMinutes !== null && state.gameStarted && !state.gamePaused
+      && !isPlayerEliminated(player) && player.id === (state.priorityPlayerId || state.turnPlayerId);
+    card.classList.toggle('is-turn', player.id === state.turnPlayerId && !state.priorityPlayerId);
+    card.classList.toggle('has-priority', hasPriority);
+    card.classList.toggle('is-timing', isTiming);
+    card.querySelector('.timer-value').textContent = state.timerMinutes === null ? '' : formatTime(player.timerSeconds);
+    const priorityButton = card.querySelector('.priority-button');
+    if (priorityButton) {
+      priorityButton.lastChild.textContent = hasPriority ? ' Encerrar' : ' Prioridade';
+    }
+  });
+  updateControls();
+  moveNamesClearOfTurnButton();
+}
+
 function bindReorderHandle(handle, card, playerId) {
   let activePointer = null;
   let targetCard = null;
@@ -1850,7 +1881,7 @@ function passTurn(direction = 1) {
   if (randomIndex(100) < 3) {
     playSound(SOUND_PATHS.randomTurn[randomIndex(SOUND_PATHS.randomTurn.length)]);
   }
-  render();
+  updateTurnState();
 }
 
 function startOrPassTurn() {
@@ -2583,7 +2614,7 @@ async function exitFullscreenForTextEntry() {
   }
 }
 
-document.querySelector('#fullscreen').addEventListener('click', async () => {
+fullscreenButton.addEventListener('click', async () => {
   try {
     if (document.fullscreenElement || document.webkitFullscreenElement) {
       const exit = document.exitFullscreen || document.webkitExitFullscreen;
@@ -2594,11 +2625,81 @@ document.querySelector('#fullscreen').addEventListener('click', async () => {
   }
 });
 
+function updateDisplayModeControls() {
+  const standalone = isStandaloneApp();
+  document.documentElement.classList.toggle('is-standalone', standalone);
+  fullscreenButton.hidden = standalone;
+  installAppButton.hidden = standalone;
+}
+
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  updateDisplayModeControls();
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  updateDisplayModeControls();
+});
+
+installAppButton.addEventListener('click', async () => {
+  if (!deferredInstallPrompt) {
+    installDialog.showModal();
+    return;
+  }
+  deferredInstallPrompt.prompt();
+  const { outcome } = await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  if (outcome === 'accepted') installAppButton.hidden = true;
+});
+
+function renderVersionHistory() {
+  versionHistory.replaceChildren();
+  versionInfo.history.forEach((release, index) => {
+    const section = document.createElement('section');
+    section.className = 'version-release';
+    const header = document.createElement('header');
+    const title = document.createElement('strong');
+    title.textContent = `v${release.version}`;
+    const date = document.createElement('time');
+    date.dateTime = release.date;
+    date.textContent = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium', timeZone: 'UTC' })
+      .format(new Date(`${release.date}T00:00:00Z`));
+    header.append(title, date);
+    const list = document.createElement('ul');
+    release.changes.forEach((change) => {
+      const item = document.createElement('li');
+      item.textContent = change;
+      list.append(item);
+    });
+    section.append(header, list);
+    if (index > 0) section.classList.add('older-release');
+    versionHistory.append(section);
+  });
+}
+
+async function loadVersionInfo() {
+  try {
+    const response = await fetch('./version.json', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Versão indisponível');
+    const loaded = await response.json();
+    if (typeof loaded.version === 'string' && Array.isArray(loaded.history)) versionInfo = loaded;
+  } catch (_) {
+    // Mantém a versão empacotada quando o dispositivo estiver offline.
+  }
+  appVersionButton.textContent = `v${versionInfo.version}`;
+  appVersionButton.setAttribute('aria-label', `Ver alterações da versão ${versionInfo.version}`);
+  renderVersionHistory();
+}
+
+appVersionButton.addEventListener('click', () => versionDialog.showModal());
+
 document.querySelectorAll('.close-modal').forEach((button) => {
   button.addEventListener('click', () => button.closest('dialog').close());
 });
 
-[imageDialog, profilesDialog, gameLogDialog, logRestoreDialog, newGameDialog].forEach((dialog) => {
+[imageDialog, profilesDialog, gameLogDialog, logRestoreDialog, newGameDialog, installDialog, versionDialog].forEach((dialog) => {
   dialog.addEventListener('close', blurActiveTextEntry);
   dialog.addEventListener('click', (event) => {
     if (event.target === dialog) dialog.close();
@@ -2628,7 +2729,8 @@ document.addEventListener('pointerup', unlockSounds, { capture: true });
 document.addEventListener('touchstart', unlockSounds, { capture: true, passive: true });
 document.addEventListener('touchend', unlockSounds, { capture: true, passive: true });
 document.addEventListener('click', unlockSounds, { capture: true });
-document.documentElement.classList.toggle('is-standalone', isStandaloneApp());
+updateDisplayModeControls();
+loadVersionInfo();
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js').catch(() => {}));
 }

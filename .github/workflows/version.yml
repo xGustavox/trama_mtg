@@ -1,0 +1,46 @@
+name: Atualizar versão
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: version-main
+  cancel-in-progress: false
+
+jobs:
+  version:
+    if: ${{ !contains(github.event.head_commit.message, '[skip version]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Calcular versão e changelog
+        run: node scripts/bump-version.mjs "${{ github.event.before }}" "${{ github.sha }}"
+
+      - name: Publicar nova versão
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add version.json
+          git diff --cached --quiet && exit 0
+          VERSION=$(node -p "require('./version.json').version")
+          git commit -m "chore(release): v${VERSION} [skip version]"
+          git push
+
+      - name: Publicar versão atualizada no GitHub Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for ATTEMPT in 1 2 3 4; do
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/pages/builds" && exit 0
+            sleep 15
+          done
+          echo "::warning::A versão foi atualizada, mas o novo build do Pages não pôde ser solicitado."

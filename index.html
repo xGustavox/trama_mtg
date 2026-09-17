@@ -20,7 +20,7 @@
   <body>
     <aside class="app-sidebar" aria-label="Menu da partida">
       <div class="app-mark" aria-label="Trama MTG Tracker">
-        <img src="assets/trama-logo.png" alt="" />
+        <img src="assets/app-icon-192.png" alt="" />
       </div>
       <nav class="sidebar-actions">
         <button id="new-game" class="sidebar-button" type="button">
@@ -46,11 +46,16 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h8M8 12h8M8 17h8M4 7h.01M4 12h.01M4 17h.01M20 7h.01M20 12h.01M20 17h.01" /></svg>
           <span id="arrange-table-label">Reorganizar</span>
         </button>
+        <button id="install-app" class="sidebar-button" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5" /></svg>
+          <span>Instalar app</span>
+        </button>
       </nav>
       <button id="fullscreen" class="sidebar-button sidebar-bottom" type="button">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" /></svg>
         <span>Tela cheia</span>
       </button>
+      <button id="app-version" class="app-version" type="button" aria-label="Ver alterações da versão 1.0.0">v1.0.0</button>
     </aside>
 
     <main id="app" aria-label="Marcador de vida"></main>
@@ -227,6 +232,36 @@
         <button class="cancel-new-game" type="button">Cancelar</button>
         <button id="confirm-new-game" class="danger-button" type="button">Começar novo jogo</button>
       </div>
+    </dialog>
+
+    <dialog id="install-dialog" class="modal install-modal">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Instalar no iPad</p>
+          <h2>Adicionar à Tela de Início</h2>
+        </div>
+        <button class="icon-button close-modal" type="button" aria-label="Fechar">×</button>
+      </div>
+      <ol class="install-steps">
+        <li>Abra esta página no <strong>Safari</strong>.</li>
+        <li>Toque no botão <strong>Compartilhar</strong>.</li>
+        <li>Escolha <strong>Adicionar à Tela de Início</strong>.</li>
+        <li>Confirme tocando em <strong>Adicionar</strong>.</li>
+      </ol>
+      <div class="confirm-actions install-actions">
+        <button class="primary-button close-modal" type="button">Entendi</button>
+      </div>
+    </dialog>
+
+    <dialog id="version-dialog" class="modal version-modal">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Histórico de atualizações</p>
+          <h2>O que mudou</h2>
+        </div>
+        <button class="icon-button close-modal" type="button" aria-label="Fechar">×</button>
+      </div>
+      <div id="version-history" class="version-history"></div>
     </dialog>
 
     <template id="player-template">

@@ -1,10 +1,11 @@
-const CACHE_NAME = 'trama-mtg-v1';
+const CACHE_NAME = 'trama-mtg-v2';
 const APP_FILES = [
   './',
   './index.html',
   './app.js',
   './styles.css',
   './manifest.webmanifest',
+  './version.json',
   './assets/trama-logo.png',
   './assets/app-icon-180.png',
   './assets/app-icon-192.png',

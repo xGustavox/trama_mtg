@@ -25,6 +25,17 @@ html, body {
   user-select: none;
 }
 
+@supports (height: 100dvh) {
+  html, body { height: 100dvh; }
+}
+
+:root.is-standalone body {
+  position: fixed;
+  inset: 0;
+  min-height: 100%;
+  background: var(--blue-black);
+}
+
 button, input, select { font: inherit; }
 button { color: inherit; }
 input, textarea { -webkit-user-select: text; user-select: text; }
@@ -103,6 +114,20 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .sidebar-button span { font-size: .62rem; line-height: 1.1; text-align: center; }
 .sidebar-button strong { color: #f1f5ed; font: 800 .7rem 'Manrope'; }
 .sidebar-bottom { margin-top: auto; }
+.sidebar-button[hidden] { display: none; }
+.app-version {
+  padding: 3px;
+  border: 0;
+  background: transparent;
+  margin-top: 5px;
+  color: rgba(174, 182, 168, .46);
+  font: 600 .52rem/1 'Manrope', sans-serif;
+  letter-spacing: .04em;
+  text-align: center;
+  cursor: pointer;
+}
+.app-version:hover { color: rgba(226, 231, 222, .82); }
+:root.is-standalone .app-version { margin-top: auto; }
 .is-reordering .sidebar-button:not(#arrange-table):not(#fullscreen) { opacity: .3; pointer-events: none; }
 .is-choosing-starter .sidebar-button { opacity: .3; pointer-events: none; }
 .is-choosing-starter #app { pointer-events: none; }
@@ -841,6 +866,38 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .modal-header h2 { margin: 2px 0 0; font: 700 1.55rem 'Manrope'; letter-spacing: -.035em; }
 .eyebrow { margin: 0; color: #9da0aa; font-size: .7rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
 .icon-button { flex: 0 0 auto; font-size: 1.65rem; }
+.install-modal { width: min(500px, calc(100% - 32px)); }
+.install-steps {
+  display: grid;
+  gap: 13px;
+  margin: 0;
+  padding: 0 32px 8px 52px;
+  color: #c9cbd2;
+  font-size: .92rem;
+  line-height: 1.45;
+}
+.install-steps strong { color: #f7f4e9; }
+.install-actions { justify-content: center; }
+.install-actions .primary-button { min-width: 180px; }
+.version-modal { width: min(560px, calc(100% - 32px)); }
+.version-history {
+  display: grid;
+  gap: 14px;
+  max-height: min(560px, calc(100vh - 130px));
+  padding: 0 24px 24px;
+  overflow-y: auto;
+}
+.version-release {
+  padding: 16px;
+  border: 1px solid #34343b;
+  border-radius: 14px;
+  background: #1b1b20;
+}
+.version-release header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.version-release header strong { font: 800 1rem 'Manrope'; }
+.version-release time { color: #8f929c; font-size: .7rem; }
+.version-release ul { display: grid; gap: 7px; margin: 12px 0 0; padding-left: 20px; color: #c9cbd2; font-size: .83rem; line-height: 1.4; }
+.version-release.older-release { opacity: .72; }
 
 .player-profile-fields {
   display: grid;
