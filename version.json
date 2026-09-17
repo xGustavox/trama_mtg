@@ -1,7 +1,14 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "updatedAt": "2026-09-17",
   "history": [
+    {
+      "version": "1.1.0",
+      "date": "2026-09-17",
+      "changes": [
+        "Add install guidance and automated release history"
+      ]
+    },
     {
       "version": "1.0.0",
       "date": "2026-09-17",
