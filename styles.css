@@ -35,6 +35,30 @@ html, body {
   min-height: 100%;
   background: var(--blue-black);
 }
+:root.is-standalone,
+:root.is-standalone body {
+  height: 100lvh;
+  min-height: 100lvh;
+}
+:root.is-standalone #app,
+:root.is-standalone .app-sidebar { bottom: calc(-1 * env(safe-area-inset-bottom, 0px)); }
+:root.is-standalone #fullscreen,
+:root.is-standalone #install-app { display: none; }
+
+@media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
+  html, body {
+    height: 100lvh;
+    min-height: 100lvh;
+  }
+  body {
+    position: fixed;
+    inset: 0;
+    background: var(--blue-black);
+  }
+  #app, .app-sidebar { bottom: calc(-1 * env(safe-area-inset-bottom, 0px)); }
+  #fullscreen, #install-app { display: none; }
+  .app-version { margin-top: auto; }
+}
 
 button, input, select { font: inherit; }
 button { color: inherit; }
@@ -116,15 +140,27 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .sidebar-bottom { margin-top: auto; }
 .sidebar-button[hidden] { display: none; }
 .app-version {
-  padding: 3px;
+  display: block;
+  width: auto;
+  max-width: 100%;
+  align-self: center;
+  flex: 0 0 auto;
+  padding: 0;
   border: 0;
+  border-radius: 0;
+  -webkit-appearance: none;
+  appearance: none;
   background: transparent;
   margin-top: 5px;
   color: rgba(174, 182, 168, .46);
+  cursor: pointer;
+}
+.app-version small {
+  display: block;
   font: 600 .52rem/1 'Manrope', sans-serif;
   letter-spacing: .04em;
   text-align: center;
-  cursor: pointer;
+  white-space: nowrap;
 }
 .app-version:hover { color: rgba(226, 231, 222, .82); }
 :root.is-standalone .app-version { margin-top: auto; }

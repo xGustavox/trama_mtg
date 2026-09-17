@@ -166,6 +166,7 @@ const fullscreenButton = document.querySelector('#fullscreen');
 const installAppButton = document.querySelector('#install-app');
 const installDialog = document.querySelector('#install-dialog');
 const appVersionButton = document.querySelector('#app-version');
+const appVersionLabel = document.querySelector('#app-version-label');
 const versionDialog = document.querySelector('#version-dialog');
 const versionHistory = document.querySelector('#version-history');
 
@@ -2593,7 +2594,9 @@ const TEXT_ENTRY_SELECTOR = [
 ].join(',');
 
 function isStandaloneApp() {
-  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  return window.navigator.standalone === true
+    || ['standalone', 'fullscreen', 'minimal-ui', 'window-controls-overlay']
+      .some((mode) => window.matchMedia(`(display-mode: ${mode})`).matches);
 }
 
 function activeFullscreenElement() {
@@ -2688,7 +2691,7 @@ async function loadVersionInfo() {
   } catch (_) {
     // Mantém a versão empacotada quando o dispositivo estiver offline.
   }
-  appVersionButton.textContent = `v${versionInfo.version}`;
+  appVersionLabel.textContent = `v${versionInfo.version}`;
   appVersionButton.setAttribute('aria-label', `Ver alterações da versão ${versionInfo.version}`);
   renderVersionHistory();
 }
@@ -2732,7 +2735,11 @@ document.addEventListener('click', unlockSounds, { capture: true });
 updateDisplayModeControls();
 loadVersionInfo();
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js').catch(() => {}));
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js', { updateViaCache: 'none' })
+      .then((registration) => registration.update())
+      .catch(() => {});
+  });
 }
 initializeSounds();
 scheduleDailyWinsReset();
