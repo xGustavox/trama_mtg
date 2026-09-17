@@ -1,7 +1,14 @@
 {
-  "version": "1.1.1",
+  "version": "1.2.0",
   "updatedAt": "2026-09-17",
   "history": [
+    {
+      "version": "1.2.0",
+      "date": "2026-09-17",
+      "changes": [
+        "Add manual first-player setup and stabilize table UI"
+      ]
+    },
     {
       "version": "1.1.1",
       "date": "2026-09-17",
