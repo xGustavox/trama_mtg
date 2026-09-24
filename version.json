@@ -1,7 +1,14 @@
 {
-  "version": "1.2.0",
-  "updatedAt": "2026-09-17",
+  "version": "1.2.1",
+  "updatedAt": "2026-09-24",
   "history": [
+    {
+      "version": "1.2.1",
+      "date": "2026-09-24",
+      "changes": [
+        "Harden app security and game state handling"
+      ]
+    },
     {
       "version": "1.2.0",
       "date": "2026-09-17",
