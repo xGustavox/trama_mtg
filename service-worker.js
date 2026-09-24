@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trama-mtg-v4';
+const CACHE_NAME = 'trama-mtg-v5';
 const APP_FILES = [
   './',
   './index.html',
@@ -11,6 +11,7 @@ const APP_FILES = [
   './assets/app-icon-192.png',
   './assets/app-icon-512.png',
   './assets/confetti.json',
+  './assets/lottie.min.js',
   './assets/ficha_burrice.png',
   './assets/medalha.png',
   './assets/poison.svg',
