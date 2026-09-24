@@ -169,6 +169,7 @@ let imagePlayerId = null;
 let isReordering = false;
 let draftTableOrder = null;
 let isChoosingStarter = false;
+let starterSelectionVersion = 0;
 let isGameLogOpen = false;
 const pendingLifeChanges = new Map();
 const lifeChangeTimers = new Map();
@@ -1086,7 +1087,6 @@ function render() {
       starterButton.type = 'button';
       starterButton.className = 'first-player-button';
       starterButton.classList.toggle('selected', player.id === state.turnPlayerId);
-      starterButton.disabled = isChoosingStarter;
       starterButton.innerHTML = player.id === state.turnPlayerId
         ? '<span aria-hidden="true">✓</span><strong>Primeiro jogador</strong>'
         : '<span aria-hidden="true">○</span><strong>Definir como primeiro</strong>';
@@ -1166,6 +1166,7 @@ function updateTurnState() {
     card.classList.toggle('is-lottery', isChoosingStarter && player.id === state.turnPlayerId);
     card.classList.toggle('has-priority', hasPriority);
     card.classList.toggle('is-timing', isTiming);
+    card.classList.toggle('is-eliminated', isPlayerEliminated(player));
     const timerValue = card.querySelector('.timer-value');
     if (timerValue) timerValue.textContent = state.timerMinutes === null ? '' : formatTime(player.timerSeconds);
     const priorityButton = card.querySelector('.priority-button');
@@ -1256,7 +1257,9 @@ function finishReordering() {
 }
 
 function setFirstPlayer(playerId) {
-  if (state.gameStarted || isChoosingStarter) return;
+  if (state.gameStarted) return;
+  starterSelectionVersion += 1;
+  isChoosingStarter = false;
   state.turnPlayerId = playerId;
   state.roundStartPlayerId = playerId;
   state.priorityPlayerId = null;
@@ -2108,7 +2111,21 @@ function applySavedPlayer(profile) {
 }
 
 function imageForCard(card) {
-  return card.image_uris?.art_crop ?? card.card_faces?.find((face) => face.image_uris?.art_crop)?.image_uris.art_crop;
+  const image = card.image_uris?.art_crop ?? card.card_faces?.find((face) => face.image_uris?.art_crop)?.image_uris.art_crop;
+  if (typeof image !== 'string') return null;
+
+  try {
+    const url = new URL(image);
+    return url.protocol === 'https:'
+      && url.hostname === 'cards.scryfall.io'
+      && !url.port
+      && !url.username
+      && !url.password
+      ? url.href
+      : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 searchForm.addEventListener('submit', async (event) => {
@@ -2135,8 +2152,13 @@ searchForm.addEventListener('submit', async (event) => {
       const image = imageForCard(card);
       button.type = 'button';
       button.className = 'image-result';
-      button.innerHTML = `<img src="${image}" alt="" loading="lazy"><span></span>`;
-      button.querySelector('span').textContent = card.name;
+      const preview = document.createElement('img');
+      preview.src = image;
+      preview.alt = '';
+      preview.loading = 'lazy';
+      const name = document.createElement('span');
+      name.textContent = card.name;
+      button.append(preview, name);
       button.setAttribute('aria-label', `Usar arte de ${card.name}, por ${card.artist || 'artista desconhecido'}`);
       button.addEventListener('click', () => selectImage(image, card.artist, card.name));
       imageResults.append(button);
@@ -2434,6 +2456,8 @@ arrangeTableButton.addEventListener('click', () => {
 });
 
 async function startNewGame() {
+  starterSelectionVersion += 1;
+  const starterSelection = starterSelectionVersion;
   discardPendingLifeChanges();
   stopAllSounds();
   stopVictoryCelebration();
@@ -2480,12 +2504,14 @@ async function startNewGame() {
   const targetIndex = randomIndex(state.tableOrder.length);
   const lastStep = state.tableOrder.length * 3 + targetIndex;
   for (let step = 0; step <= lastStep; step += 1) {
+    if (starterSelection !== starterSelectionVersion) return;
     state.turnPlayerId = state.tableOrder[step % state.tableOrder.length];
     updateTurnState();
     const delay = 70 + Math.round((step / lastStep) * 130);
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
 
+  if (starterSelection !== starterSelectionVersion) return;
   state.turnPlayerId = state.tableOrder[targetIndex];
   state.roundStartPlayerId = state.turnPlayerId;
   isChoosingStarter = false;
@@ -2774,17 +2800,33 @@ function scheduleLayoutGeometryRefresh() {
   });
 }
 window.addEventListener('resize', scheduleLayoutGeometryRefresh);
-window.addEventListener('pageshow', scheduleLayoutGeometryRefresh);
+window.addEventListener('pageshow', () => {
+  lastTimerTick = Date.now();
+  scheduleLayoutGeometryRefresh();
+});
 window.visualViewport?.addEventListener('resize', scheduleLayoutGeometryRefresh);
 document.addEventListener('fullscreenchange', scheduleLayoutGeometryRefresh);
 document.addEventListener('webkitfullscreenchange', scheduleLayoutGeometryRefresh);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     tickTimer();
+    lastTimerTick = Date.now();
     saveState();
   } else {
     lastTimerTick = Date.now();
     scheduleLayoutGeometryRefresh();
     setTimeout(scheduleLayoutGeometryRefresh, 300);
   }
+});
+window.addEventListener('pagehide', () => {
+  tickTimer();
+  lastTimerTick = Date.now();
+  saveState();
+});
+document.addEventListener('freeze', () => {
+  lastTimerTick = Date.now();
+  saveState();
+});
+document.addEventListener('resume', () => {
+  lastTimerTick = Date.now();
 });
