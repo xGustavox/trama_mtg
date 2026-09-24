@@ -1,7 +1,14 @@
 {
-  "version": "1.2.1",
+  "version": "1.2.2",
   "updatedAt": "2026-09-24",
   "history": [
+    {
+      "version": "1.2.2",
+      "date": "2026-09-24",
+      "changes": [
+        "Restore offline lottie confetti"
+      ]
+    },
     {
       "version": "1.2.1",
       "date": "2026-09-24",
