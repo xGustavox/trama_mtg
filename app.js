@@ -559,6 +559,10 @@ function loadProfiles() {
     return Array.isArray(saved) ? saved.map((profile) => {
       const normalized = { ...profile };
       delete normalized.lifeEffect;
+      const images = Array.isArray(profile?.images) ? profile.images : [];
+      normalized.images = [...images, ...(profile?.image ? [{ image: profile.image, artist: profile.artist, cardName: profile.cardName }] : [])]
+        .filter((entry) => typeof entry?.image === 'string')
+        .filter((entry, index, all) => all.findIndex((item) => item?.image === entry.image) === index);
       return normalized;
     }) : [];
   } catch (_) {
@@ -635,12 +639,18 @@ function scheduleDailyWinsReset() {
 }
 
 function savePlayerProfile(player) {
+  const existing = profiles.find((item) => item.id === player.profileId);
+  const images = [...(existing?.images || [])];
+  if (player.image && !images.some((item) => item.image === player.image)) {
+    images.push({ image: player.image, artist: player.artist, cardName: player.cardName });
+  }
   const profile = {
     id: player.profileId,
     name: player.name,
     image: player.image,
     artist: player.artist,
     cardName: player.cardName,
+    images,
     color: player.color,
     lifeFont: player.lifeFont,
   };
@@ -1105,26 +1115,30 @@ function render() {
         ? ' Encerrar'
         : ' Prioridade';
       priorityButton.addEventListener('click', () => takePriority(player.id));
-      const commanderGroup = document.createElement('div');
+      const commanders = otherPlayersClockwiseFrom(player.id);
+      const commanderGroup = document.createElement('button');
       commanderGroup.className = 'commander-counter-group player-commander-counters';
-      otherPlayersClockwiseFrom(player.id).forEach((commander) => {
+      commanderGroup.type = 'button';
+      commanderGroup.style.setProperty('--commander-count', commanders.length);
+      commanderGroup.style.setProperty('--commander-bar-max-width', `${commanders.length * 44 + (commanders.length - 1) * 4}px`);
+      commanderGroup.setAttribute('aria-label', `Editar dano de comandante recebido por ${player.name}: ${commanders.map((commander) => `${commander.name}, ${player.commanderDamage[commander.id] || 0}`).join('; ')}`);
+      commanderGroup.title = 'Editar dano de comandante';
+      commanders.forEach((commander) => {
         const damage = player.commanderDamage[commander.id] || 0;
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'counter-chip commander-chip';
-        button.dataset.commanderId = commander.id;
-        button.classList.toggle('has-damage', damage > 0);
-        button.classList.toggle('is-lethal', damage > 20);
-        button.setAttribute('aria-label', `${damage} de dano do comandante de ${commander.name}`);
+        const chip = document.createElement('span');
+        chip.className = 'counter-chip commander-chip';
+        chip.dataset.commanderId = commander.id;
+        chip.classList.toggle('has-damage', damage > 0);
+        chip.classList.toggle('is-lethal', damage > 20);
         const avatar = document.createElement('span');
         avatar.className = 'counter-avatar';
-        updateCommanderAvatar(button, avatar, commander);
+        updateCommanderAvatar(chip, avatar, commander);
         const total = document.createElement('strong');
         total.textContent = damage;
-        button.append(avatar, total);
-        button.addEventListener('click', () => openCommanderDamage(player.id, commander.id, card));
-        commanderGroup.append(button);
+        chip.append(avatar, total);
+        commanderGroup.append(chip);
       });
+      commanderGroup.addEventListener('click', () => openCommanderDamage(player.id, card));
       card.querySelector('.player-content').append(commanderGroup);
       syncStatusCounterChips(player, card);
     }
@@ -1610,6 +1624,14 @@ function syncGameCardStates() {
       'aria-label',
       `${player.poisonCounters} de veneno e ${player.radiationCounters} de radiação de ${player.name}`,
     );
+    const commanderBar = card.querySelector('.player-commander-counters');
+    if (commanderBar) {
+      const commanders = otherPlayersClockwiseFrom(player.id);
+      commanderBar.setAttribute(
+        'aria-label',
+        `Editar dano de comandante recebido por ${player.name}: ${commanders.map((commander) => `${commander.name}, ${player.commanderDamage[commander.id] || 0}`).join('; ')}`,
+      );
+    }
     card.querySelectorAll('.commander-chip').forEach((chip) => {
       const damage = player.commanderDamage[chip.dataset.commanderId] || 0;
       const commander = state.players.find((item) => item.id === chip.dataset.commanderId);
@@ -1618,6 +1640,13 @@ function syncGameCardStates() {
       chip.classList.toggle('is-lethal', damage > 20);
       if (commander) updateCommanderAvatar(chip, chip.querySelector('.counter-avatar'), commander);
     });
+    card.querySelectorAll('.commander-damage-editor').forEach((editor) => {
+      const commander = state.players.find((item) => item.id === editor.dataset.commanderId);
+      if (!commander) return;
+      const damage = player.commanderDamage[commander.id] || 0;
+      editor.querySelector('.commander-editor-control output').textContent = damage;
+      updateCommanderAvatar(editor, editor.querySelector('.counter-avatar'), commander);
+    });
     card.querySelectorAll('.status-counter-chip').forEach((chip) => {
       const counter = PLAYER_COUNTER_TYPES[chip.dataset.counterType];
       chip.querySelector('strong').textContent = player[counter.property];
@@ -1625,60 +1654,92 @@ function syncGameCardStates() {
   });
 }
 
-function openCommanderDamage(targetId, sourceId, card) {
+function openCommanderDamage(targetId, card) {
   finishPendingLifeChanges();
   const target = state.players.find((player) => player.id === targetId);
-  const source = state.players.find((player) => player.id === sourceId);
-  if (!target || !source || card.querySelector('.card-counter-panel')) return;
-  const damageOnOpen = target.commanderDamage[sourceId] || 0;
+  const commanders = otherPlayersClockwiseFrom(targetId);
+  if (!target || !commanders.length || card.querySelector('.card-counter-panel')) return;
+  const damageOnOpen = new Map(commanders.map((commander) => [commander.id, target.commanderDamage[commander.id] || 0]));
   const wasEliminatedOnOpen = isPlayerEliminated(target);
   const snapshotOnOpen = gameSnapshot();
   const { panel, background, closeButton, content } = createCardCounterPanel(
     card,
-    source,
-    `Dano do comandante de ${source.name}`,
+    target,
+    `Dano de comandante recebido por ${target.name}`,
   );
+  panel.classList.add('commander-damage-panel');
   background.classList.add('commander-panel-background');
-  const matchup = document.createElement('div');
-  matchup.className = 'card-counter-matchup';
-  const sourceName = document.createElement('strong');
-  sourceName.textContent = source.name;
-  const description = document.createElement('span');
-  description.textContent = `em ${target.name}`;
-  matchup.append(sourceName, description);
+  const commanderCount = commanders.length;
+  const columns = Math.min(2, commanderCount);
+  const rows = Math.ceil(commanderCount / columns);
+  const finalRowCount = commanderCount % columns;
+  const editors = document.createElement('div');
+  editors.className = 'commander-damage-table';
+  editors.classList.toggle('dense-commander-grid', commanderCount >= 5);
+  editors.classList.toggle('very-dense-commander-grid', commanderCount >= 7);
+  editors.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+  editors.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
 
-  const control = createCounterControl('Dano de comandante', damageOnOpen, (amount, output) => {
-    const wasEliminated = isPlayerEliminated(target);
-    const current = target.commanderDamage[sourceId] || 0;
-    const next = Math.max(0, current + amount);
-    const appliedDamage = next - current;
-    if (appliedDamage === 0) return;
-    target.commanderDamage[sourceId] = next;
-    target.life -= appliedDamage;
-    playDeathSoundIfNeeded(target, wasEliminated);
-    checkForWinner();
-    if (isPlayerEliminated(target) && state.priorityPlayerId === target.id) state.priorityPlayerId = null;
-    output.textContent = next;
-    syncGameCardStates();
-    saveState();
+  commanders.forEach((commander, index) => {
+    const editor = document.createElement('div');
+    editor.className = 'commander-damage-editor';
+    editor.dataset.commanderId = commander.id;
+    if (rows > 1 && finalRowCount && index === commanderCount - 1) {
+      editor.style.gridColumn = `span ${columns - finalRowCount + 1}`;
+    }
+    const avatar = document.createElement('span');
+    avatar.className = 'counter-avatar';
+    updateCommanderAvatar(editor, avatar, commander);
+    const name = document.createElement('strong');
+    name.className = 'commander-editor-name';
+    name.textContent = commander.name;
+    const control = createCounterControl(
+      `Dano de ${commander.name}`,
+      damageOnOpen.get(commander.id),
+      (amount, output) => {
+        const wasEliminated = isPlayerEliminated(target);
+        const current = target.commanderDamage[commander.id] || 0;
+        const next = Math.max(0, current + amount);
+        const appliedDamage = next - current;
+        if (appliedDamage === 0) return;
+        target.commanderDamage[commander.id] = next;
+        target.life -= appliedDamage;
+        playDeathSoundIfNeeded(target, wasEliminated);
+        checkForWinner();
+        if (isPlayerEliminated(target) && state.priorityPlayerId === target.id) state.priorityPlayerId = null;
+        output.textContent = next;
+        syncGameCardStates();
+        saveState();
+      },
+    );
+    control.classList.add('commander-editor-control');
+    control.dataset.commanderId = commander.id;
+    const body = document.createElement('div');
+    body.className = 'commander-editor-body';
+    body.append(name, control);
+    editor.append(avatar, body);
+    editors.append(editor);
   });
-  control.classList.add('single-player-counter');
+
   const hint = document.createElement('p');
   hint.className = 'card-counter-hint';
-  hint.textContent = 'Toque para alterar 1 · Segure para alterar 10 continuamente';
-  content.append(matchup, control, hint);
+  hint.textContent = 'Toque em +/− para alterar 1 · Segure para alterar 10 continuamente';
+  content.append(editors, hint);
 
   function closePanel() {
-    const damageAfter = target.commanderDamage[sourceId] || 0;
-    const damageChange = damageAfter - damageOnOpen;
+    const changes = commanders
+      .map((commander) => ({
+        commander,
+        delta: (target.commanderDamage[commander.id] || 0) - damageOnOpen.get(commander.id),
+      }))
+      .filter(({ delta }) => delta !== 0);
     panel.remove();
     releaseTimerForModal(panel);
-    if (damageChange !== 0) {
-      const action = damageChange > 0 ? 'causou' : 'removeu';
-      const direction = damageChange > 0 ? 'a' : 'de';
+    if (changes.length) {
+      const message = `Dano de comandante em ${target.name}: ${changes.map(({ commander, delta }) => `${commander.name} ${delta > 0 ? '+' : '−'}${Math.abs(delta)}`).join(', ')}`;
       addLogEntry(
         'commander',
-        `${source.name} ${action} ${Math.abs(damageChange)} de dano de comandante ${direction} ${target.name}`,
+        message,
         snapshotOnOpen,
         true,
         target.id,
@@ -1686,9 +1747,12 @@ function openCommanderDamage(targetId, sourceId, card) {
       logPlayerEliminationChange(target, wasEliminatedOnOpen, snapshotOnOpen);
     }
     syncGameCardStates();
-    if (damageChange > 0) {
+    const attackers = changes.filter(({ delta }) => delta > 0);
+    if (attackers.length) {
       if (randomIndex(2) === 0) playSound(SOUND_PATHS.commanderDamage);
-      requestAnimationFrame(() => animateCommanderAttack(sourceId, targetId));
+      attackers.forEach(({ commander }) => {
+        requestAnimationFrame(() => animateCommanderAttack(commander.id, targetId));
+      });
     }
   }
   closeButton.addEventListener('click', closePanel);
@@ -2015,6 +2079,9 @@ function renderColorOptions(player) {
 
 function renderSavedPlayers() {
   const grid = document.querySelector('#saved-player-grid');
+  document.querySelector('#saved-player-image-picker').hidden = true;
+  grid.hidden = false;
+  document.querySelector('#saved-player-images').replaceChildren();
   const player = state.players.find((item) => item.id === imagePlayerId);
   grid.replaceChildren();
   if (profiles.length === 0) {
@@ -2029,16 +2096,23 @@ function renderSavedPlayers() {
     item.className = 'saved-player-item';
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'saved-player-card';
-    button.classList.toggle('selected', profile.id === player?.profileId);
+    button.className = 'saved-player-select';
+    button.classList.toggle('is-current', profile.id === player?.profileId);
     const background = document.createElement('span');
     background.className = 'profile-background';
-    background.style.background = profile.image
-      ? `url("${profile.image}") center / cover`
+    const previewImage = profile.image || profile.images?.[0]?.image;
+    background.style.background = previewImage
+      ? `url("${previewImage}") center / cover`
       : `rgb(${profile.color || COLORS[0]})`;
     const name = document.createElement('strong');
     name.textContent = profile.name;
-    button.append(background, name);
+    const details = document.createElement('span');
+    details.className = 'saved-player-details';
+    const imageCount = profile.images?.length || 0;
+    const imageSummary = document.createElement('small');
+    imageSummary.textContent = `${imageCount} ${imageCount === 1 ? 'arte salva' : 'artes salvas'}`;
+    details.append(name, imageSummary);
+    button.append(background, details);
     const removeButton = document.createElement('button');
     removeButton.type = 'button';
     removeButton.className = 'delete-saved-player';
@@ -2076,7 +2150,7 @@ function renderSavedPlayers() {
         holdTriggered = false;
         return;
       }
-      applySavedPlayer(profile);
+      renderSavedProfileImages(profile);
     });
     removeButton.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -2089,15 +2163,55 @@ function renderSavedPlayers() {
   });
 }
 
-function applySavedPlayer(profile) {
+function renderSavedProfileImages(profile) {
+  const grid = document.querySelector('#saved-player-grid');
+  const picker = document.querySelector('#saved-player-image-picker');
+  const title = document.querySelector('#saved-player-image-title');
+  const images = document.querySelector('#saved-player-images');
+  document.querySelector('#saved-player-image-back').onclick = renderSavedPlayers;
+  title.textContent = `Escolha a arte do comandante de ${profile.name}`;
+  images.replaceChildren();
+  (profile.images || []).forEach((savedImage) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'saved-player-image';
+    button.setAttribute('aria-label', `Usar ${savedImage.cardName || 'esta arte'}${savedImage.artist ? `, por ${savedImage.artist}` : ''}`);
+    const preview = document.createElement('img');
+    preview.src = savedImage.image;
+    preview.alt = savedImage.cardName || 'Arte salva do comandante';
+    preview.loading = 'lazy';
+    const caption = document.createElement('span');
+    caption.textContent = savedImage.cardName || 'Arte do comandante';
+    button.append(preview, caption);
+    button.addEventListener('click', () => applySavedPlayer(profile, savedImage));
+    images.append(button);
+  });
+  if (!profile.images?.length) {
+    const empty = document.createElement('p');
+    empty.className = 'saved-player-empty';
+    empty.textContent = 'Este jogador ainda não tem artes de comandante salvas.';
+    const loadWithoutImage = document.createElement('button');
+    loadWithoutImage.type = 'button';
+    loadWithoutImage.className = 'saved-player-load-without-image';
+    loadWithoutImage.textContent = 'Carregar configuração sem imagem';
+    loadWithoutImage.addEventListener('click', () => applySavedPlayer(profile, null));
+    images.append(empty, loadWithoutImage);
+  }
+  grid.hidden = true;
+  picker.hidden = false;
+  picker.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function applySavedPlayer(profile, selectedImage) {
   const player = state.players.find((item) => item.id === imagePlayerId);
   if (!player) return;
+  const image = selectedImage || null;
   Object.assign(player, {
     profileId: profile.id,
     name: profile.name,
-    image: profile.image,
-    artist: profile.artist,
-    cardName: profile.cardName,
+    image: image?.image || null,
+    artist: image?.artist || null,
+    cardName: image?.cardName || null,
     color: profile.color || player.color,
     lifeFont: LIFE_FONT_OPTIONS.includes(profile.lifeFont) ? profile.lifeFont : 'standard',
   });
@@ -2532,7 +2646,12 @@ gameLogDialog.addEventListener('close', () => {
   isGameLogOpen = false;
   lastTimerTick = Date.now();
 });
-imageDialog.addEventListener('close', () => releaseTimerForModal(imageDialog));
+imageDialog.addEventListener('close', () => {
+  searchInput.value = '';
+  imageResults.replaceChildren();
+  searchStatus.textContent = 'Busque pelo nome de uma carta para usar sua arte como fundo.';
+  releaseTimerForModal(imageDialog);
+});
 document.querySelector('.cancel-log-restore').addEventListener('click', () => logRestoreDialog.close());
 document.querySelector('#confirm-log-restore').addEventListener('click', () => {
   const entryId = pendingLogRestoreId;
